@@ -6,8 +6,23 @@ type ApiRequestOptions = {
   headers?: Record<string, string>;
 };
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:5253";
+const runtimeApiBase =
+  typeof window !== "undefined"
+    ? (window as { __ENV__?: { API_BASE?: string } }).__ENV?.API_BASE
+    : undefined;
+
+function normalizeBase(base?: string) {
+  if (!base) {
+    return "";
+  }
+  return base.endsWith("/") ? base.slice(0, -1) : base;
+}
+
+export const API_BASE = normalizeBase(
+  runtimeApiBase ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "http://47.117.71.201:8081/",
+);
 
 function buildUrl(path: string) {
   if (path.startsWith("http://") || path.startsWith("https://")) {
