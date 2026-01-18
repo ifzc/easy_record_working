@@ -26,6 +26,15 @@ export default function Header() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const { notify } = useNotice();
 
+  function isAuthUser(value: unknown): value is AuthUser {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "account" in value &&
+      typeof (value as { account?: unknown }).account === "string"
+    );
+  }
+
   useEffect(() => {
     const token = loadAuthToken();
     if (!token) {
@@ -45,11 +54,11 @@ export default function Header() {
           (payload as { data?: { user?: AuthUser; tenant?: AuthTenant } })
             .data ?? payload;
         const nextUser = (data as { user?: AuthUser }).user ?? data;
-        if (nextUser && typeof nextUser.account === "string") {
-          setUser(nextUser as AuthUser);
+        if (isAuthUser(nextUser)) {
+          setUser(nextUser);
           saveAuthSession({
             token,
-            user: nextUser as AuthUser,
+            user: nextUser,
             tenant: (data as { tenant?: AuthTenant }).tenant,
           });
         }

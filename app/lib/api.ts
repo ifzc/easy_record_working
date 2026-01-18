@@ -6,23 +6,7 @@ type ApiRequestOptions = {
   headers?: Record<string, string>;
 };
 
-const runtimeApiBase =
-  typeof window !== "undefined"
-    ? (window as { __ENV__?: { API_BASE?: string } }).__ENV?.API_BASE
-    : undefined;
-
-function normalizeBase(base?: string) {
-  if (!base) {
-    return "";
-  }
-  return base.endsWith("/") ? base.slice(0, -1) : base;
-}
-
-export const API_BASE = normalizeBase(
-  runtimeApiBase ||
-    process.env.NEXT_PUBLIC_API_BASE ||
-    "http://47.117.71.201:8081/",
-);
+export const API_BASE = "http://47.117.71.201:8081";
 
 function buildUrl(path: string) {
   if (path.startsWith("http://") || path.startsWith("https://")) {
@@ -59,9 +43,19 @@ export async function apiJson<T>(path: string, options: ApiRequestOptions = {}) 
   }
 
   if (!response.ok) {
-    const message =
-      (payload && typeof payload.message === "string" && payload.message) ||
-      `请求失败(${response.status})`;
+    let message = `请求失败(${response.status})`;
+    if (
+      payload &&
+      typeof payload === "object" &&
+      payload !== null &&
+      "message" in payload &&
+      typeof (payload as { message?: string }).message === "string"
+    ) {
+      const payloadMessage = (payload as { message?: string }).message;
+      if (payloadMessage) {
+        message = payloadMessage;
+      }
+    }
     throw new Error(message);
   }
 
