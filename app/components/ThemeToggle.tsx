@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "../lib/utils";
 
 type ThemePreference = "system" | "light" | "dark";
 
@@ -12,7 +13,19 @@ const options: Array<{ value: ThemePreference; label: string }> = [
   { value: "dark", label: "暗黑模式" },
 ];
 
-export default function ThemeToggle() {
+type ThemeToggleProps = {
+  className?: string;
+  selectClassName?: string;
+  label?: string;
+  labelClassName?: string;
+};
+
+export default function ThemeToggle({
+  className,
+  selectClassName,
+  label,
+  labelClassName,
+}: ThemeToggleProps) {
   const [preference, setPreference] = useState<ThemePreference>("system");
 
   useEffect(() => {
@@ -43,12 +56,26 @@ export default function ThemeToggle() {
   }
 
   return (
-    <label className="text-xs font-medium text-[color:var(--muted-foreground)]">
-      <span className="sr-only">主题模式</span>
+    <label
+      className={cn(
+        "text-xs font-medium text-[color:var(--muted-foreground)]",
+        className,
+      )}
+    >
+      {label ? (
+        <span className={cn("text-[color:var(--muted-foreground)]", labelClassName)}>
+          {label}
+        </span>
+      ) : (
+        <span className="sr-only">主题模式</span>
+      )}
       <select
         value={preference}
         onChange={handleChange}
-        className="rounded-full border border-[color:var(--border)] bg-transparent px-3 py-1 text-xs font-medium text-[color:var(--muted-foreground)] transition hover:text-foreground"
+        className={cn(
+          "rounded-full border border-[color:var(--border)] bg-transparent px-3 py-1 text-xs font-medium text-[color:var(--muted-foreground)] transition hover:text-foreground",
+          selectClassName,
+        )}
         aria-label="主题模式"
       >
         {options.map((option) => (

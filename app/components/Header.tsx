@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import ThemeToggle from "./ThemeToggle";
 import { apiJson } from "../lib/api";
@@ -20,6 +20,7 @@ export default function Header() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -72,6 +73,24 @@ export default function Header() {
         setMenuOpen(false);
       });
   }, [pathname, router]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (menuRef.current && target && !menuRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [menuOpen]);
 
   if (pathname === "/login") {
     return null;
@@ -141,10 +160,18 @@ export default function Header() {
               <Link className="transition hover:text-foreground" href="/employees">
                 员工管理
               </Link>
+              <span className="cursor-not-allowed select-none opacity-60">
+                工时报表
+              </span>
+              <span className="cursor-not-allowed select-none opacity-60">
+                工程管理
+              </span>
+              <span className="cursor-not-allowed select-none opacity-60">
+                工程预算
+              </span>
             </nav>
-            <ThemeToggle />
             {user ? (
-              <div className="relative">
+              <div ref={menuRef} className="relative">
                 <button
                   type="button"
                   onClick={() => setMenuOpen((prev) => !prev)}
@@ -153,8 +180,27 @@ export default function Header() {
                 {user.display_name ?? user.account}
                 </button>
                 {menuOpen ? (
-                  <div className="absolute right-0 mt-2 w-40 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-[color:var(--muted-foreground)] shadow-sm">
-                    <div className="px-2 py-1">免费用户</div>
+                  <div className="absolute right-0 mt-2 w-48 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
+                    <div className="flex items-center justify-between gap-2 px-2 py-1">
+                      <span className="text-[color:var(--muted-foreground)]">
+                        免费用户
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => notify("升级功能即将开放。", "info")}
+                        className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground hover:bg-[color:var(--surface-muted)]"
+                      >
+                        升级高级版
+                      </button>
+                    </div>
+                    <div className="px-2 py-1">
+                      <ThemeToggle
+                        label="主题模式"
+                        className="flex items-center justify-between gap-2"
+                        labelClassName="whitespace-nowrap text-[color:var(--muted-foreground)]"
+                        selectClassName="w-24 rounded-md px-2 py-1 text-xs text-foreground"
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={openPasswordModal}
