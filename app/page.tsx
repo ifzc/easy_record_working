@@ -418,7 +418,9 @@ export default function Home() {
           <div className="mt-2 grid grid-cols-7 gap-2">
             {calendarCells.map((cell, index) => {
               if (!cell) {
-                return <div key={`empty-${index}`} className="h-10" />;
+                return (
+                  <div key={`empty-${index}`} className="aspect-square w-full" />
+                );
               }
 
               const isSelected = cell.dateKey === selectedDate;
@@ -429,7 +431,7 @@ export default function Home() {
                   key={cell.dateKey}
                   type="button"
                   onClick={() => handleDayClick(cell.dateKey)}
-                  className={`flex h-10 items-center justify-center rounded-lg border text-sm transition ${
+                  className={`flex aspect-square w-full items-center justify-center rounded-lg border text-sm transition ${
                     isSelected
                       ? "border-[color:var(--foreground)] bg-[color:var(--surface-muted)]"
                       : "border-transparent hover:border-[color:var(--border)]"
