@@ -37,7 +37,9 @@ export default function RootLayout({
               <AuthGuard>{children}</AuthGuard>
             </main>
             <footer className="border-t border-[color:var(--border)] py-4 text-center text-xs text-[color:var(--muted-foreground)]">
-              @易记工
+              <div className="flex flex-col items-center gap-1">
+                <span>@易记工 鄂ICP备2025102952号</span>
+              </div>
             </footer>
           </NoticeProvider>
         </div>

@@ -165,45 +165,40 @@ export default function Header() {
               </span>
             </nav>
             {user ? (
-              <div ref={menuRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen((prev) => !prev)}
-                  className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-medium text-foreground"
-                >
-                {user.display_name ?? user.account}
-                </button>
-                {menuOpen ? (
-                  <div className="absolute right-0 mt-2 w-48 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
-                    <div className="flex items-center justify-between gap-2 px-2 py-1">
-                      <span className="text-[color:var(--muted-foreground)]">
-                        个人用户
-                      </span>
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <div ref={menuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((prev) => !prev)}
+                    className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-medium text-foreground"
+                  >
+                    {user.display_name ?? user.account}
+                  </button>
+                  {menuOpen ? (
+                    <div className="absolute right-0 mt-2 w-21 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
+                      <div className="flex items-center justify-between gap-2 px-2 py-1">
+                        <span className="text-[color:var(--muted-foreground)]">
+                          个人用户
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={openPasswordModal}
+                        className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
+                      >
+                        修改密码
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
+                      >
+                        退出登录
+                      </button>
                     </div>
-                    <div className="px-2 py-1">
-                      <ThemeToggle
-                        label="主题模式"
-                        className="flex items-center justify-between gap-2"
-                        labelClassName="whitespace-nowrap text-[color:var(--muted-foreground)]"
-                        selectClassName="w-24 rounded-md px-2 py-1 text-xs text-foreground"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={openPasswordModal}
-                      className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
-                    >
-                      修改密码
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
-                    >
-                      退出登录
-                    </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>

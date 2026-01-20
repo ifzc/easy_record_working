@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import ThemeToggle from "../components/ThemeToggle";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 import { AuthSession, saveAuthSession } from "../lib/auth";
@@ -110,7 +111,22 @@ export default function RegisterPage() {
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-120px)] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-10">
+    <section className="relative flex min-h-[calc(100vh-120px)] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-10">
+      <div className="absolute right-6 top-6 z-20 flex items-center gap-2">
+        <ThemeToggle />
+        <a
+          href="https://github.com/ifzc/easy_record_working"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--border)] text-[color:var(--muted-foreground)] transition hover:text-foreground"
+          aria-label="GitHub"
+          title="GitHub"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+            <path d="M12 2C6.477 2 2 6.484 2 12.019c0 4.424 2.865 8.182 6.839 9.504.5.092.682-.217.682-.483 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.004.071 1.532 1.037 1.532 1.037.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.114-4.555-4.956 0-1.094.39-1.988 1.03-2.688-.103-.254-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.748-1.026 2.748-1.026.546 1.378.203 2.396.1 2.65.64.7 1.028 1.594 1.028 2.688 0 3.852-2.339 4.7-4.566 4.948.359.31.678.921.678 1.856 0 1.338-.012 2.418-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.019C22 6.484 17.523 2 12 2Z" />
+          </svg>
+        </a>
+      </div>
       <div className="relative w-full overflow-hidden rounded-2xl lg:w-1/2">
         <div className="absolute left-6 top-6 z-10">
           <p className="text-lg font-semibold text-foreground">易记工</p>
