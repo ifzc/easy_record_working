@@ -163,12 +163,6 @@ export default function Header() {
               <span className="cursor-not-allowed select-none opacity-60">
                 工时报表
               </span>
-              <span className="cursor-not-allowed select-none opacity-60">
-                工程管理
-              </span>
-              <span className="cursor-not-allowed select-none opacity-60">
-                工程预算
-              </span>
             </nav>
             {user ? (
               <div ref={menuRef} className="relative">
@@ -183,15 +177,8 @@ export default function Header() {
                   <div className="absolute right-0 mt-2 w-48 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
                     <div className="flex items-center justify-between gap-2 px-2 py-1">
                       <span className="text-[color:var(--muted-foreground)]">
-                        免费用户
+                        个人用户
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => notify("升级功能即将开放。", "info")}
-                        className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground hover:bg-[color:var(--surface-muted)]"
-                      >
-                        升级高级版
-                      </button>
                     </div>
                     <div className="px-2 py-1">
                       <ThemeToggle

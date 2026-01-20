@@ -7,6 +7,7 @@
   --surface-muted: #f4f4f5;
   --border: #e4e4e7;
   --muted-foreground: #52525b;
+  --auth-bg-image: url("/assets/images/main_img_white.png");
   color-scheme: light;
 }
 
@@ -38,6 +39,7 @@
     --surface-muted: #27272a;
     --border: #3f3f46;
     --muted-foreground: #a1a1aa;
+    --auth-bg-image: url("/assets/images/main_img_black.png");
     color-scheme: dark;
   }
 }
@@ -49,6 +51,7 @@ html[data-theme="light"] {
   --surface-muted: #f4f4f5;
   --border: #e4e4e7;
   --muted-foreground: #52525b;
+  --auth-bg-image: url("/assets/images/main_img_white.png");
   color-scheme: light;
 }
 
@@ -59,6 +62,7 @@ html[data-theme="dark"] {
   --surface-muted: #27272a;
   --border: #3f3f46;
   --muted-foreground: #a1a1aa;
+  --auth-bg-image: url("/assets/images/main_img_black.png");
   color-scheme: dark;
 }
 

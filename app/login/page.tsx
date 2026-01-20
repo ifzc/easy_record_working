@@ -98,81 +98,99 @@ export default function LoginPage() {
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-120px)] items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-sm">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">登录</h1>
-          <p className="text-sm text-[color:var(--muted-foreground)]">
-            输入账号与密码登录，系统将进入对应的加密数据空间。
+    <section className="flex min-h-[calc(100vh-120px)] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-10">
+      <div className="relative w-full overflow-hidden rounded-2xl lg:w-1/2">
+        <div className="absolute left-6 top-6 z-10">
+          <p className="text-lg font-semibold text-foreground">易记工</p>
+          <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">
+            简单好用的记工平台
           </p>
         </div>
+        <div
+          className="min-h-[220px] w-full bg-center bg-no-repeat lg:min-h-full"
+          style={{
+            backgroundImage: "var(--auth-bg-image)",
+            backgroundSize: "420px auto",
+          }}
+          aria-hidden="true"
+        />
+      </div>
+      <div className="flex w-full items-center justify-center lg:w-1/2">
+        <div className="w-full max-w-md rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-sm">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold">登录</h1>
+            <p className="text-sm text-[color:var(--muted-foreground)]">
+              输入账号与密码登录，系统将进入对应的加密数据空间。
+            </p>
+          </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <label className="flex flex-col gap-2 text-xs text-[color:var(--muted-foreground)]">
-            账号
-            <input
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              placeholder="请输入账号"
-              className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
-            />
-          </label>
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <label className="flex flex-col gap-2 text-xs text-[color:var(--muted-foreground)]">
+              账号
+              <input
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
+                placeholder="请输入账号"
+                className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
+              />
+            </label>
 
-          <label className="flex flex-col gap-2 text-xs text-[color:var(--muted-foreground)]">
-            密码
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="请输入密码"
-              className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
-            />
-          </label>
+            <label className="flex flex-col gap-2 text-xs text-[color:var(--muted-foreground)]">
+              密码
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="请输入密码"
+                className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
+              />
+            </label>
 
-          <label className="flex items-center gap-2 text-xs text-[color:var(--muted-foreground)]">
-            <input
-              type="checkbox"
-              checked={agreed}
-              onChange={(event) => setAgreed(event.target.checked)}
-              className="h-4 w-4 rounded border border-[color:var(--border)]"
-            />
-            <span>
-              我已阅读并同意
-              <button
-                type="button"
-                onClick={() => setActiveModal("privacy")}
-                className="mx-1 text-foreground underline underline-offset-2"
-              >
-                隐私协议
-              </button>
-              和
-              <button
-                type="button"
-                onClick={() => setActiveModal("disclaimer")}
-                className="mx-1 text-foreground underline underline-offset-2"
-              >
-                免责声明
-              </button>
-            </span>
-          </label>
+            <label className="flex items-center gap-2 text-xs text-[color:var(--muted-foreground)]">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(event) => setAgreed(event.target.checked)}
+                className="h-4 w-4 rounded border border-[color:var(--border)]"
+              />
+              <span>
+                我已阅读并同意
+                <button
+                  type="button"
+                  onClick={() => setActiveModal("privacy")}
+                  className="mx-1 text-foreground underline underline-offset-2"
+                >
+                  隐私协议
+                </button>
+                和
+                <button
+                  type="button"
+                  onClick={() => setActiveModal("disclaimer")}
+                  className="mx-1 text-foreground underline underline-offset-2"
+                >
+                  免责声明
+                </button>
+              </span>
+            </label>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="h-10 w-full rounded-md bg-foreground text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {submitting ? "登录中..." : "登录"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="h-10 w-full rounded-md bg-foreground text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {submitting ? "登录中..." : "登录"}
+            </button>
+          </form>
 
-        <div className="mt-4 text-center text-xs text-[color:var(--muted-foreground)]">
-          没有账号：
-          <Link
-            href="/register"
-            className="ml-1 text-foreground underline underline-offset-2"
-          >
-            前往注册
-          </Link>
+          <div className="mt-4 text-center text-xs text-[color:var(--muted-foreground)]">
+            没有账号：
+            <Link
+              href="/register"
+              className="ml-1 text-foreground underline underline-offset-2"
+            >
+              前往注册
+            </Link>
+          </div>
         </div>
       </div>
 

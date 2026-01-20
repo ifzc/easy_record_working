@@ -110,8 +110,25 @@ export default function RegisterPage() {
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-120px)] items-center justify-center">
-      <div className="w-full max-w-md space-y-6">
+    <section className="flex min-h-[calc(100vh-120px)] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-10">
+      <div className="relative w-full overflow-hidden rounded-2xl lg:w-1/2">
+        <div className="absolute left-6 top-6 z-10">
+          <p className="text-lg font-semibold text-foreground">易记工</p>
+          <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">
+            简单好用的记工平台
+          </p>
+        </div>
+        <div
+          className="min-h-[220px] w-full bg-center bg-no-repeat lg:min-h-full"
+          style={{
+            backgroundImage: "var(--auth-bg-image)",
+            backgroundSize: "420px auto",
+          }}
+          aria-hidden="true"
+        />
+      </div>
+      <div className="flex w-full items-center justify-center lg:w-1/2">
+        <div className="w-full max-w-md space-y-6">
         <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-sm">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold">注册个人账号</h1>
@@ -197,6 +214,7 @@ export default function RegisterPage() {
               登录
             </Link>
           </div>
+        </div>
         </div>
       </div>
 

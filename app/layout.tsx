@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "易记工",
-  description: "易记工 - 便捷方便的记工软件",
+  description: "易记工 - 简单好用的记工平台",
 };
 
 export default function RootLayout({
