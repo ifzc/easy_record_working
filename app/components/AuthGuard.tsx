@@ -14,6 +14,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const [ready, setReady] = useState(false);
   const isPublic =
     pathname === "/login" ||
+    pathname === "/register" ||
     pathname === "/privacy" ||
     pathname === "/disclaimer";
 

@@ -386,7 +386,7 @@ export default function Home() {
   return (
     <section className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">工时总览</h1>
+        <h1 className="text-2xl font-semibold">工时填报</h1>
         <p className="text-sm text-[color:var(--muted-foreground)]">
           选择日期查看记工明细，支持新增、编辑与删除记录。
         </p>

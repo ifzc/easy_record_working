@@ -92,7 +92,7 @@ export default function Header() {
     };
   }, [menuOpen]);
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/register") {
     return null;
   }
 
@@ -155,7 +155,7 @@ export default function Header() {
           <div className="flex items-center gap-4">
             <nav className="flex items-center gap-6 text-sm font-medium text-[color:var(--muted-foreground)]">
               <Link className="transition hover:text-foreground" href="/">
-                工时总览
+                工时填报
               </Link>
               <Link className="transition hover:text-foreground" href="/employees">
                 员工管理

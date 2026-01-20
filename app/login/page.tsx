@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 import { AuthSession, loadAuthSession, saveAuthSession } from "../lib/auth";
@@ -163,6 +164,16 @@ export default function LoginPage() {
             {submitting ? "登录中..." : "登录"}
           </button>
         </form>
+
+        <div className="mt-4 text-center text-xs text-[color:var(--muted-foreground)]">
+          没有账号：
+          <Link
+            href="/register"
+            className="ml-1 text-foreground underline underline-offset-2"
+          >
+            前往注册
+          </Link>
+        </div>
       </div>
 
       {activeModal ? (
