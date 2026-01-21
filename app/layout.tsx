@@ -33,8 +33,10 @@ export default function RootLayout({
         <div className="flex min-h-screen flex-col">
           <NoticeProvider>
             <Header />
-            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
-              <AuthGuard>{children}</AuthGuard>
+            <main className="flex-1 bg-[color:var(--page-background)]">
+              <div className="mx-auto w-full max-w-6xl px-4 py-6">
+                <AuthGuard>{children}</AuthGuard>
+              </div>
             </main>
             <footer className="border-t border-[color:var(--border)] py-4 text-center text-xs text-[color:var(--muted-foreground)]">
               <div className="flex flex-col items-center gap-1">

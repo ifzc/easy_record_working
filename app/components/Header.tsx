@@ -160,13 +160,12 @@ export default function Header() {
               <Link className="transition hover:text-foreground" href="/employees">
                 员工管理
               </Link>
-              <span className="cursor-not-allowed select-none opacity-60">
-                工时报表
-              </span>
+              <Link className="transition hover:text-foreground" href="/reports">
+                工时总览
+              </Link>
             </nav>
             {user ? (
               <div className="flex items-center gap-2">
-                <ThemeToggle />
                 <div ref={menuRef} className="relative">
                   <button
                     type="button"
@@ -199,6 +198,7 @@ export default function Header() {
                     </div>
                   ) : null}
                 </div>
+                <ThemeToggle />
               </div>
             ) : null}
           </div>

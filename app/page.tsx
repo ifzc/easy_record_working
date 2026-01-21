@@ -20,6 +20,8 @@ type TimeEntry = {
   date: string;
   normalHours: number;
   overtimeHours: number;
+  remark?: string;
+  createdAt?: string;
 };
 
 type FormState = {
@@ -27,6 +29,7 @@ type FormState = {
   date: string;
   normalHours: number;
   overtimeHours: number;
+  remark: string;
 };
 
 type SummaryItem = {
@@ -64,6 +67,19 @@ function formatHours(value: number) {
 function formatWorkUnits(normalHours: number, overtimeHours: number) {
   const units = normalHours / 8 + overtimeHours / 6;
   return Number.isInteger(units) ? `${units}` : units.toFixed(2);
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {
@@ -128,6 +144,8 @@ function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
     employee?.type ??
     "正式工";
   const date = String(item.work_date ?? item.workDate ?? item.date ?? "");
+  const remark = item.remark ?? item.notes ?? item.note ?? "";
+  const createdAt = item.created_at ?? item.createdAt ?? "";
   if (!id || !employeeId || !date) {
     return null;
   }
@@ -139,6 +157,8 @@ function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
     date,
     normalHours: Number(item.normal_hours ?? item.normalHours ?? 0),
     overtimeHours: Number(item.overtime_hours ?? item.overtimeHours ?? 0),
+    remark: String(remark ?? ""),
+    createdAt: createdAt ? String(createdAt) : "",
   };
 }
 
@@ -176,6 +196,7 @@ export default function Home() {
     date: todayKey,
     normalHours: 8,
     overtimeHours: 0,
+    remark: "",
   });
   const { notify, confirm } = useNotice();
 
@@ -297,6 +318,7 @@ export default function Home() {
       date: selectedDate,
       normalHours: 8,
       overtimeHours: 0,
+      remark: "",
     });
     setIsModalOpen(true);
   }
@@ -308,6 +330,7 @@ export default function Home() {
       date: entry.date,
       normalHours: entry.normalHours,
       overtimeHours: entry.overtimeHours,
+      remark: entry.remark ?? "",
     });
     setIsModalOpen(true);
   }
@@ -342,6 +365,7 @@ export default function Home() {
         work_date: formState.date,
         normal_hours: formState.normalHours,
         overtime_hours: formState.overtimeHours,
+        remark: formState.remark.trim(),
       };
 
       if (editingEntryId) {
@@ -454,7 +478,7 @@ export default function Home() {
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 text-foreground">
               <div>总工时 {formatHours(selectedTotals.hours)}h</div>
-              <div>出勤 {selectedTotals.count}人</div>
+              <div className="text-right">出勤 {selectedTotals.count}人</div>
             </div>
           </div>
         </div>
@@ -502,6 +526,8 @@ export default function Home() {
                   <th className="pb-2 font-medium">正常班次工时</th>
                   <th className="pb-2 font-medium">加班工时</th>
                   <th className="pb-2 font-medium">总计工</th>
+                  <th className="pb-2 font-medium">备注</th>
+                  <th className="pb-2 font-medium">创建时间</th>
                   <th className="pb-2 font-medium">操作</th>
                 </tr>
               </thead>
@@ -509,7 +535,7 @@ export default function Home() {
                 {entries.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={8}
                       className="py-6 text-center text-[color:var(--muted-foreground)]"
                     >
                       暂无记录
@@ -535,6 +561,12 @@ export default function Home() {
                       </td>
                       <td className="py-3 text-foreground">
                         {formatWorkUnits(item.normalHours, item.overtimeHours)}工
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {item.remark || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {formatDateTime(item.createdAt)}
                       </td>
                       <td className="py-3">
                         <div className="flex items-center gap-2">
@@ -654,6 +686,25 @@ export default function Home() {
                   />
                 </label>
               </div>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                备注
+                <textarea
+                  value={formState.remark}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      remark: event.target.value,
+                    }))
+                  }
+                  maxLength={100}
+                  rows={3}
+                  className="resize-none rounded-md border border-[color:var(--border)] bg-transparent px-2 py-2 text-sm text-foreground"
+                />
+                <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                  {formState.remark.length}/100
+                </span>
+              </label>
 
               <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2 text-xs text-[color:var(--muted-foreground)]">
                 总计工：{formatWorkUnits(formState.normalHours, formState.overtimeHours)}工（正常班次 8 小时=1 工，加班 6 小时=1 工）

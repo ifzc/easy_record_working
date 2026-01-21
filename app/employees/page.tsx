@@ -11,12 +11,15 @@ type Employee = {
   id: string;
   name: string;
   type: EmployeeType;
+  remark?: string;
+  createdAt?: string;
   is_active?: boolean;
 };
 
 type FormState = {
   name: string;
   type: EmployeeType;
+  remark: string;
 };
 
 const employeeTypes: EmployeeType[] = ["正式工", "临时工"];
@@ -58,6 +61,8 @@ function extractList<T>(payload: unknown): T[] {
 }
 
 function normalizeEmployee(item: Record<string, unknown>): Employee {
+  const createdAt = item.created_at ?? item.createdAt ?? "";
+  const remark = item.remark ?? item.notes ?? "";
   return {
     id: String(item.id ?? ""),
     name: String(item.name ?? item.employee_name ?? ""),
@@ -65,8 +70,24 @@ function normalizeEmployee(item: Record<string, unknown>): Employee {
       (item.type as EmployeeType) ??
       (item.employee_type as EmployeeType) ??
       "正式工",
+    remark: String(remark ?? ""),
+    createdAt: createdAt ? String(createdAt) : "",
     is_active: Boolean(item.is_active ?? item.isActive ?? true),
   };
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const pad = (num: number) => num.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export default function EmployeesPage() {
@@ -77,6 +98,7 @@ export default function EmployeesPage() {
   const [formState, setFormState] = useState<FormState>({
     name: "",
     type: "正式工",
+    remark: "",
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { notify, confirm } = useNotice();
@@ -112,13 +134,17 @@ export default function EmployeesPage() {
 
   function openCreateModal() {
     setEditingEmployeeId(null);
-    setFormState({ name: "", type: "正式工" });
+    setFormState({ name: "", type: "正式工", remark: "" });
     setIsModalOpen(true);
   }
 
   function openEditModal(employee: Employee) {
     setEditingEmployeeId(employee.id);
-    setFormState({ name: employee.name, type: employee.type });
+    setFormState({
+      name: employee.name,
+      type: employee.type,
+      remark: employee.remark ?? "",
+    });
     setIsModalOpen(true);
   }
 
@@ -153,6 +179,7 @@ export default function EmployeesPage() {
           body: {
             name,
             type: formState.type,
+            remark: formState.remark.trim(),
           },
         });
         notify("员工已更新。", "success");
@@ -162,6 +189,7 @@ export default function EmployeesPage() {
           body: {
             name,
             type: formState.type,
+            remark: formState.remark.trim(),
           },
         });
         notify("员工已新增。", "success");
@@ -294,6 +322,8 @@ export default function EmployeesPage() {
               <tr>
                 <th className="pb-2 font-medium">员工姓名</th>
                 <th className="pb-2 font-medium">员工类型</th>
+                <th className="pb-2 font-medium">备注</th>
+                <th className="pb-2 font-medium">创建时间</th>
                 <th className="pb-2 font-medium">操作</th>
               </tr>
             </thead>
@@ -301,7 +331,7 @@ export default function EmployeesPage() {
               {displayEmployees.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={5}
                     className="py-6 text-center text-[color:var(--muted-foreground)]"
                   >
                     暂无员工
@@ -316,6 +346,12 @@ export default function EmployeesPage() {
                     <td className="py-3 text-foreground">{employee.name}</td>
                     <td className="py-3 text-[color:var(--muted-foreground)]">
                       {employee.type}
+                    </td>
+                    <td className="py-3 text-[color:var(--muted-foreground)]">
+                      {employee.remark || "-"}
+                    </td>
+                    <td className="py-3 text-[color:var(--muted-foreground)]">
+                      {formatDateTime(employee.createdAt)}
                     </td>
                     <td className="py-3">
                       <div className="flex items-center gap-2">
@@ -392,6 +428,25 @@ export default function EmployeesPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                备注
+                <textarea
+                  value={formState.remark}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      remark: event.target.value,
+                    }))
+                  }
+                  maxLength={100}
+                  rows={3}
+                  className="resize-none rounded-md border border-[color:var(--border)] bg-transparent px-2 py-2 text-sm text-foreground"
+                />
+                <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                  {formState.remark.length}/100
+                </span>
               </label>
 
               <div className="flex items-center justify-end gap-2">
