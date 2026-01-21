@@ -14,7 +14,7 @@ const modalContent: Record<ModalType, { title: string; items: string[] }> = {
   privacy: {
     title: "隐私协议",
     items: [
-      "我们会收集账号、租户、记工等必要信息，用于提供服务与问题排查。",
+      "我们会收集账号、租户、记工等必要信息，用于提供服务。",
       "数据仅用于平台内部使用，不会向无关第三方披露。",
       "你可通过管理员申请更正或删除账号相关信息。",
     ],
@@ -117,7 +117,7 @@ export default function LoginPage() {
       </div>
       <div className="relative w-full overflow-hidden rounded-2xl lg:w-1/2">
         <div className="absolute left-6 top-6 z-10">
-          <p className="text-lg font-semibold text-foreground">易记工</p>
+          <p className="text-2xl font-semibold text-foreground">易记工</p>
           <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">
             简单好用的记工平台
           </p>
@@ -134,7 +134,7 @@ export default function LoginPage() {
       <div className="flex w-full items-center justify-center lg:w-1/2">
         <div className="w-full max-w-md rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-sm">
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold">登录</h1>
+            <h1 className="text-lg font-semibold">登录</h1>
             <p className="text-sm text-[color:var(--muted-foreground)]">
               输入账号与密码登录，系统将进入对应的数据空间。
             </p>
@@ -199,7 +199,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-4 text-center text-xs text-[color:var(--muted-foreground)]">
-            没有账号：
+            还没有账号
             <Link
               href="/register"
               className="ml-1 text-foreground underline underline-offset-2"

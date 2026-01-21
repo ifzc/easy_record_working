@@ -11,6 +11,7 @@ import {
   AuthUser,
   clearAuthSession,
   loadAuthToken,
+  loadAuthTenant,
   loadAuthUser,
   saveAuthSession,
 } from "../lib/auth";
@@ -19,12 +20,15 @@ export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [tenant, setTenant] = useState<AuthTenant | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isDisplayNameModalOpen, setIsDisplayNameModalOpen] = useState(false);
+  const [displayName, setDisplayName] = useState("");
   const { notify } = useNotice();
 
   function isAuthUser(value: unknown): value is AuthUser {
@@ -40,6 +44,7 @@ export default function Header() {
     const token = loadAuthToken();
     if (!token) {
       setUser(null);
+      setTenant(null);
       setMenuOpen(false);
       return;
     }
@@ -47,6 +52,10 @@ export default function Header() {
     const cachedUser = loadAuthUser();
     if (cachedUser) {
       setUser(cachedUser);
+    }
+    const cachedTenant = loadAuthTenant();
+    if (cachedTenant) {
+      setTenant(cachedTenant);
     }
 
     apiJson("/api/auth/me")
@@ -56,11 +65,13 @@ export default function Header() {
             .data ?? payload;
         const nextUser = (data as { user?: AuthUser }).user ?? data;
         if (isAuthUser(nextUser)) {
+          const nextTenant = (data as { tenant?: AuthTenant }).tenant ?? null;
           setUser(nextUser);
+          setTenant(nextTenant);
           saveAuthSession({
             token,
             user: nextUser,
-            tenant: (data as { tenant?: AuthTenant }).tenant,
+            tenant: nextTenant ?? undefined,
           });
         }
       })
@@ -100,6 +111,7 @@ export default function Header() {
     apiJson("/api/auth/logout", { method: "POST" }).catch(() => null);
     clearAuthSession();
     setUser(null);
+    setTenant(null);
     setMenuOpen(false);
     notify("已退出登录。", "success");
     router.replace("/login");
@@ -111,6 +123,12 @@ export default function Header() {
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
+  }
+
+  function openDisplayNameModal() {
+    setMenuOpen(false);
+    setIsDisplayNameModalOpen(true);
+    setDisplayName(user?.display_name ?? "");
   }
 
   async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
@@ -145,6 +163,47 @@ export default function Header() {
     }
   }
 
+  async function handleDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) {
+      notify("用户信息不可用，请重新登录。", "warning");
+      return;
+    }
+    const nextDisplayName = displayName.trim();
+    if (nextDisplayName.length > 10) {
+      notify("昵称不能超过 10 个字符。", "warning");
+      return;
+    }
+
+    try {
+      await apiJson("/api/auth/change-display-name", {
+        method: "POST",
+        body: {
+          display_name: nextDisplayName,
+        },
+      });
+      const nextUser = {
+        ...user,
+        display_name: nextDisplayName || undefined,
+      };
+      setUser(nextUser);
+      const token = loadAuthToken();
+      if (token) {
+        saveAuthSession({
+          token,
+          user: nextUser,
+          tenant: loadAuthTenant() ?? undefined,
+        });
+      }
+      notify("昵称已更新。", "success");
+      setIsDisplayNameModalOpen(false);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "昵称修改失败";
+      notify(message, "error");
+    }
+  }
+
   return (
     <>
       <header className="border-b border-[color:var(--border)] bg-[color:var(--surface)]">
@@ -175,18 +234,39 @@ export default function Header() {
                     {user.display_name ?? user.account}
                   </button>
                   {menuOpen ? (
-                    <div className="absolute right-0 mt-2 w-21 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
-                      <div className="flex items-center justify-between gap-2 px-2 py-1">
-                        <span className="text-[color:var(--muted-foreground)]">
-                          个人用户
-                        </span>
+                    <div className="absolute right-0 mt-2 w-max min-w-[100px] rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-xs text-foreground shadow-sm">
+                      <div className="px-2 py-1">
+                        <div className="text-[color:var(--muted-foreground)]">
+                          登录账号
+                        </div>
+                        <div className="mt-1 text-foreground">
+                          {user.account}
+                        </div>
+                        {tenant?.name && tenant.name !== user.account ? (
+                          <div className="mt-2">
+                            <div className="text-[color:var(--muted-foreground)]">
+                              所属公司
+                            </div>
+                            <div className="mt-1 text-foreground">
+                              {tenant.name}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
+                      <div className="my-1 h-px bg-[color:var(--border)]" />
                       <button
                         type="button"
                         onClick={openPasswordModal}
                         className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
                       >
                         修改密码
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openDisplayNameModal}
+                        className="mt-1 w-full rounded-md px-2 py-1 text-left text-foreground hover:bg-[color:var(--surface-muted)]"
+                      >
+                        修改昵称
                       </button>
                       <button
                         type="button"
@@ -249,6 +329,51 @@ export default function Header() {
                 <button
                   type="button"
                   onClick={() => setIsPasswordModalOpen(false)}
+                  className="h-9 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)]"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="h-9 rounded-md bg-foreground px-3 text-xs font-medium text-background"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {isDisplayNameModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">修改昵称</h2>
+              <button
+                type="button"
+                onClick={() => setIsDisplayNameModalOpen(false)}
+                className="text-xs text-[color:var(--muted-foreground)]"
+              >
+                关闭
+              </button>
+            </div>
+            <form onSubmit={handleDisplayNameSubmit} className="mt-4 space-y-3">
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                昵称
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  maxLength={10}
+                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                />
+              </label>
+              <div className="text-right text-[10px] text-[color:var(--muted-foreground)]">
+                {displayName.trim().length}/10
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDisplayNameModalOpen(false)}
                   className="h-9 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)]"
                 >
                   取消

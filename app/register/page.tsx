@@ -14,7 +14,7 @@ const modalContent: Record<ModalType, { title: string; items: string[] }> = {
   privacy: {
     title: "隐私协议",
     items: [
-      "我们会收集账号、租户、记工等必要信息，用于提供服务与问题排查。",
+      "我们会收集账号、租户、记工等必要信息，用于提供服务。",
       "数据仅用于平台内部使用，不会向无关第三方披露。",
       "你可通过管理员申请更正或删除账号相关信息。",
     ],
@@ -33,6 +33,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const { notify } = useNotice();
   const [account, setAccount] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [tenantName, setTenantName] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -42,8 +43,13 @@ export default function RegisterPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedAccount = account.trim();
+    const trimmedDisplayName = displayName.trim();
     const trimmedPassword = password.trim();
     const trimmedTenantName = tenantName.trim();
+    if (trimmedDisplayName.length > 10) {
+      notify("昵称长度不能超过 10 个字符。", "warning");
+      return;
+    }
 
     if (!trimmedAccount || !trimmedPassword) {
       notify("请填写账号和密码。", "warning");
@@ -71,6 +77,9 @@ export default function RegisterPage() {
         account: trimmedAccount,
         password: trimmedPassword,
       };
+      if (trimmedDisplayName) {
+        body.display_name = trimmedDisplayName;
+      }
       if (trimmedTenantName) {
         body.tenant_name = trimmedTenantName;
       }
@@ -96,6 +105,7 @@ export default function RegisterPage() {
         token,
         user: (data as AuthSession).user ?? {
           account: trimmedAccount,
+          display_name: trimmedDisplayName || undefined,
         },
         tenant: (data as AuthSession).tenant,
       });
@@ -129,7 +139,7 @@ export default function RegisterPage() {
       </div>
       <div className="relative w-full overflow-hidden rounded-2xl lg:w-1/2">
         <div className="absolute left-6 top-6 z-10">
-          <p className="text-lg font-semibold text-foreground">易记工</p>
+          <p className="text-2xl font-semibold text-foreground">易记工</p>
           <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">
             简单好用的记工平台
           </p>
@@ -147,7 +157,7 @@ export default function RegisterPage() {
         <div className="w-full max-w-md space-y-6">
         <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 shadow-sm">
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold">注册个人账号</h1>
+            <h1 className="text-xl font-semibold">注册个人账号</h1>
             <p className="text-sm text-[color:var(--muted-foreground)]">
               创建个人账号，免费使用易记工，开启便捷方便的记工填报新体验！
             </p>
@@ -160,6 +170,17 @@ export default function RegisterPage() {
                 value={account}
                 onChange={(event) => setAccount(event.target.value)}
                 placeholder="请输入账号"
+                className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-xs text-[color:var(--muted-foreground)]">
+              昵称（选填）
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                maxLength={10}
+                placeholder="请输入昵称"
                 className="h-10 rounded-md border border-[color:var(--border)] bg-transparent px-3 text-sm text-foreground"
               />
             </label>
