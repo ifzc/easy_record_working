@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 
@@ -34,6 +35,25 @@ type SummaryDaily = {
   overtimeHours: number;
   totalHours: number;
   totalWorkUnits: number;
+};
+
+type TimeEntry = {
+  id: string;
+  employeeName: string;
+  employeeType: string;
+  workType?: string;
+  normalHours: number;
+  overtimeHours: number;
+  totalHours: number;
+  workUnits: number;
+  remark?: string;
+};
+
+type Project = {
+  id: string;
+  name: string;
+  plannedStartDate?: string;
+  plannedEndDate?: string;
 };
 
 const CHART_WIDTH = 140;
@@ -120,6 +140,22 @@ function normalizeEmployee(item: Record<string, unknown>): Employee | null {
   };
 }
 
+function normalizeProject(item: Record<string, unknown>): Project | null {
+  const id = String(item.id ?? "");
+  const name = String(item.name ?? "");
+  if (!id || !name) {
+    return null;
+  }
+  const plannedStartDate = item.planned_start_date ?? item.plannedStartDate ?? "";
+  const plannedEndDate = item.planned_end_date ?? item.plannedEndDate ?? "";
+  return {
+    id,
+    name,
+    plannedStartDate: plannedStartDate ? String(plannedStartDate) : undefined,
+    plannedEndDate: plannedEndDate ? String(plannedEndDate) : undefined,
+  };
+}
+
 function normalizeSummary(item: SummaryItem): SummaryDaily | null {
   const date = item.date ?? item.work_date;
   if (!date) {
@@ -143,6 +179,37 @@ function normalizeSummary(item: SummaryItem): SummaryDaily | null {
     overtimeHours,
     totalHours,
     totalWorkUnits,
+  };
+}
+
+function normalizeTimeEntry(item: Record<string, unknown>): TimeEntry | null {
+  const id = String(item.id ?? "");
+  const employeeName = String(
+    item.employee_name ?? item.employeeName ?? "",
+  );
+  if (!id || !employeeName) {
+    return null;
+  }
+  const normalHours = Number(item.normal_hours ?? item.normalHours ?? 0);
+  const overtimeHours = Number(item.overtime_hours ?? item.overtimeHours ?? 0);
+  const totalHours = Number(
+    item.total_hours ?? item.totalHours ?? normalHours + overtimeHours,
+  );
+  const workUnitsRaw = item.work_units ?? item.workUnits;
+  const workUnits =
+    workUnitsRaw === undefined || workUnitsRaw === null
+      ? normalHours / 8 + overtimeHours / 6
+      : Number(workUnitsRaw);
+  return {
+    id,
+    employeeName,
+    employeeType: String(item.employee_type ?? item.employeeType ?? ""),
+    workType: String(item.work_type ?? item.workType ?? item.employee_work_type ?? ""),
+    normalHours,
+    overtimeHours,
+    totalHours,
+    workUnits,
+    remark: item.remark ? String(item.remark) : undefined,
   };
 }
 
@@ -226,6 +293,67 @@ function createEmptySummary(date: string): SummaryDaily {
   };
 }
 
+function parseDateOnly(value?: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parts = value.split("-").map(Number);
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [year, month, day] = parts;
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+}
+
+function buildProjectDateMap(
+  projects: Project[],
+  year: number,
+  month: number,
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+
+  projects.forEach((project) => {
+    const startRaw = parseDateOnly(project.plannedStartDate);
+    const endRaw = parseDateOnly(project.plannedEndDate);
+    const fallback = startRaw ?? endRaw;
+    let start = startRaw ?? fallback;
+    let end = endRaw ?? fallback;
+    if (!start || !end) {
+      return;
+    }
+    if (end < start) {
+      const temp = start;
+      start = end;
+      end = temp;
+    }
+
+    const rangeStart = start < monthStart ? monthStart : start;
+    const rangeEnd = end > monthEnd ? monthEnd : end;
+    if (rangeEnd < rangeStart) {
+      return;
+    }
+
+    const cursor = new Date(rangeStart);
+    while (cursor <= rangeEnd) {
+      const dateKey = toDateKey(cursor);
+      const existing = map.get(dateKey);
+      if (existing) {
+        existing.push(project.name);
+      } else {
+        map.set(dateKey, [project.name]);
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+
+  return map;
+}
+
 export default function ReportsPage() {
   const [today] = useState(() => new Date());
   const todayKey = toDateKey(today);
@@ -235,9 +363,20 @@ export default function ReportsPage() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedEmployeeType, setSelectedEmployeeType] = useState("");
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [summaryList, setSummaryList] = useState<SummaryDaily[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [projectTooltip, setProjectTooltip] = useState<{
+    names: string[];
+    x: number;
+    y: number;
+  } | null>(null);
+  const [dayDetail, setDayDetail] = useState<{
+    date: string;
+    entries: TimeEntry[];
+    loading: boolean;
+  } | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const { notify } = useNotice();
 
@@ -249,10 +388,13 @@ export default function ReportsPage() {
     loadSummary();
   }, [selectedMonth, selectedEmployeeId, selectedEmployeeType]);
 
+  useEffect(() => {
+    loadProjects();
+  }, [selectedMonth]);
+
   async function loadEmployees() {
     try {
       const query = buildQuery({
-        is_active: true,
         page: 1,
         page_size: 200,
         sort: "name_asc",
@@ -262,6 +404,23 @@ export default function ReportsPage() {
         .map(normalizeEmployee)
         .filter((item): item is Employee => Boolean(item));
       setEmployees(list);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function loadProjects() {
+    try {
+      const query = buildQuery({
+        page: 1,
+        page_size: 200,
+        sort: "name_asc",
+      });
+      const payload = await apiJson(`/api/projects${query}`);
+      const list = extractList<Record<string, unknown>>(payload)
+        .map(normalizeProject)
+        .filter((item): item is Project => Boolean(item));
+      setProjects(list);
     } catch (error) {
       console.error(error);
     }
@@ -291,6 +450,29 @@ export default function ReportsPage() {
     }
   }
 
+  async function openDayDetail(date: string) {
+    setDayDetail({ date, entries: [], loading: true });
+    try {
+      const query = buildQuery({
+        date,
+        page: 1,
+        page_size: 200,
+        sort: "hours_desc",
+      });
+      const payload = await apiJson(`/api/time-entries${query}`);
+      const list = extractList<Record<string, unknown>>(payload)
+        .map(normalizeTimeEntry)
+        .filter((item): item is TimeEntry => Boolean(item));
+      setDayDetail({ date, entries: list, loading: false });
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : "加载当日记工失败。";
+      notify(message, "error");
+      setDayDetail({ date, entries: [], loading: false });
+    }
+  }
+
   const { year, month } = parseMonthKey(selectedMonth);
   const daysInMonth = new Date(year, month, 0).getDate();
   const monthStart = new Date(year, month - 1, 1);
@@ -304,6 +486,11 @@ export default function ReportsPage() {
     });
     return map;
   }, [summaryList]);
+
+  const projectMap = useMemo(
+    () => buildProjectDateMap(projects, year, month),
+    [projects, year, month],
+  );
 
   const dailySummaries = useMemo(() => {
     const list = [] as SummaryDaily[];
@@ -398,6 +585,22 @@ export default function ReportsPage() {
   const currentMonthLabel =
     monthOptions.find((option) => option.value === selectedMonth)?.label ??
     selectedMonth;
+  const dayDetailSummary = useMemo(() => {
+    if (!dayDetail) {
+      return null;
+    }
+    const uniqueEmployees = new Set(
+      dayDetail.entries.map((entry) => entry.employeeName).filter(Boolean),
+    );
+    const totalWorkUnits = dayDetail.entries.reduce(
+      (sum, entry) => sum + entry.workUnits,
+      0,
+    );
+    return {
+      headcount: uniqueEmployees.size,
+      totalWorkUnits,
+    };
+  }, [dayDetail]);
 
   const calendarCells = Array.from({ length: totalCells }, (_, index) => {
     const day = index - startIndex + 1;
@@ -451,6 +654,23 @@ export default function ReportsPage() {
       },
       { once: true },
     );
+  }
+
+  function showProjectTooltip(
+    event: React.MouseEvent<HTMLSpanElement>,
+    names: string[],
+  ) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const tooltipWidth = 192;
+    const gap = 6;
+    const maxLeft = window.innerWidth - tooltipWidth - 8;
+    const left = Math.max(8, Math.min(rect.left, maxLeft));
+    const top = rect.bottom + gap;
+    setProjectTooltip({ names, x: left, y: top });
+  }
+
+  function hideProjectTooltip() {
+    setProjectTooltip(null);
   }
 
   return (
@@ -663,7 +883,7 @@ export default function ReportsPage() {
           <div>
             <p className="text-sm font-medium">当月日历</p>
             <p className="text-xs text-[color:var(--muted-foreground)]">
-              每日统计包含出勤人数、总工时与工数。
+              每天展示项目与工数，超过两个项目可通过 ... 查看更多。
             </p>
           </div>
           <span className="text-xs text-[color:var(--muted-foreground)]">
@@ -686,13 +906,12 @@ export default function ReportsPage() {
             }
             const summary =
               summaryMap.get(cell.dateKey) ?? createEmptySummary(cell.dateKey);
+            const projectNames = projectMap.get(cell.dateKey) ?? [];
+            const visibleProjects = projectNames.slice(0, 2);
+            const remainingProjects = projectNames.slice(2);
             const isToday = cell.dateKey === todayKey;
             const isEmpty =
-              summary.headcount === 0 &&
-              summary.totalHours === 0 &&
-              summary.normalHours === 0 &&
-              summary.overtimeHours === 0 &&
-              summary.totalWorkUnits === 0;
+              summary.headcount === 0 && summary.totalWorkUnits === 0;
             return (
               <div
                 key={cell.dateKey}
@@ -714,21 +933,158 @@ export default function ReportsPage() {
                   >
                     {cell.day}
                   </span>
-                  <span className="text-[10px] text-[color:var(--muted-foreground)]">
-                    {summary.headcount}人
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                      {summary.headcount}人 / {formatWorkUnits(summary.totalWorkUnits)}工
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openDayDetail(cell.dateKey)}
+                      className="flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--border)] text-[10px] text-[color:var(--muted-foreground)] hover:text-foreground"
+                      aria-label="查看当日记工详情"
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1 space-y-1 text-[10px] text-[color:var(--muted-foreground)]">
-                  <div>总工时 {formatHours(summary.totalHours)}h</div>
-                  <div>正常 {formatHours(summary.normalHours)}h</div>
-                  <div>加班 {formatHours(summary.overtimeHours)}h</div>
-                  <div>工数 {formatWorkUnits(summary.totalWorkUnits)}工</div>
+                  {visibleProjects.map((name, index) => {
+                    const isLast = index === visibleProjects.length - 1;
+                    return (
+                      <div key={name} className="flex items-center gap-1">
+                        <span className="truncate">{name}</span>
+                        {isLast && remainingProjects.length > 0 ? (
+                          <span
+                            className="shrink-0 whitespace-nowrap text-[10px] text-[color:var(--muted-foreground)]"
+                            onMouseEnter={(event) =>
+                              showProjectTooltip(event, projectNames)
+                            }
+                            onMouseLeave={hideProjectTooltip}
+                          >
+                            ...+{remainingProjects.length}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
         </div>
+        {projectTooltip ? (
+          <div
+            className="pointer-events-none fixed z-50 w-48 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-2 text-[10px] text-foreground shadow-sm"
+            style={{ left: projectTooltip.x, top: projectTooltip.y }}
+          >
+            <div className="text-[10px] text-[color:var(--muted-foreground)]">
+              全部项目
+            </div>
+            <div className="mt-1 space-y-1 text-[10px] text-foreground">
+              {projectTooltip.names.map((projectName, idx) => (
+                <div key={`${projectName}-${idx}`} className="truncate">
+                  {projectName}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      {dayDetail ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold">当日记工详情</h3>
+                <p className="text-xs text-[color:var(--muted-foreground)]">
+                  {dayDetail.date}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDayDetail(null)}
+                className="text-xs text-[color:var(--muted-foreground)]"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2">
+                <div className="text-[10px] text-[color:var(--muted-foreground)]">
+                  人员
+                </div>
+                <div className="text-sm font-semibold text-foreground">
+                  {dayDetail.loading
+                    ? "加载中..."
+                    : `${dayDetailSummary?.headcount ?? 0}人`}
+                </div>
+              </div>
+              <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2">
+                <div className="text-[10px] text-[color:var(--muted-foreground)]">
+                  工数
+                </div>
+                <div className="text-sm font-semibold text-foreground">
+                  {dayDetail.loading
+                    ? "加载中..."
+                    : `${formatWorkUnits(dayDetailSummary?.totalWorkUnits ?? 0)}工`}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-72 overflow-y-auto">
+              {dayDetail.loading ? (
+                <div className="py-8 text-center text-xs text-[color:var(--muted-foreground)]">
+                  正在加载当日记工数据...
+                </div>
+              ) : dayDetail.entries.length === 0 ? (
+                <div className="py-8 text-center text-xs text-[color:var(--muted-foreground)]">
+                  暂无记工记录
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  {dayDetail.entries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-foreground">
+                          {entry.employeeName} - {entry.workType || ""} -{" "}
+                          {entry.employeeType || ""}
+                        </div>
+                        <div className="text-[10px] text-[color:var(--muted-foreground)]">
+                          正常 {formatHours(entry.normalHours)}小时
+                          {entry.overtimeHours > 0 ? (
+                            <>
+                              {" "}
+                              · 加班 {formatHours(entry.overtimeHours)}小时
+                            </>
+                          ) : null}
+                        </div>
+                        {entry.remark ? (
+                          <div className="mt-1 text-[10px] text-[color:var(--muted-foreground)]">
+                            备注：{entry.remark}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] text-[color:var(--muted-foreground)]">
+                          工数
+                        </div>
+                        <div className="text-sm font-semibold text-foreground">
+                          {formatWorkUnits(entry.workUnits)}工
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

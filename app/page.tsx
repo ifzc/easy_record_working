@@ -10,6 +10,7 @@ type Employee = {
   id: string;
   name: string;
   type: EmployeeType;
+  workType?: string;
 };
 
 type TimeEntry = {
@@ -62,6 +63,13 @@ function parseMonthKey(key: string) {
 
 function formatHours(value: number) {
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+}
+
+function formatHoursLabel(value: number) {
+  if (value === 0) {
+    return "-";
+  }
+  return `${formatHours(value)}小时`;
 }
 
 function formatWorkUnits(normalHours: number, overtimeHours: number) {
@@ -124,10 +132,12 @@ function normalizeEmployee(item: Record<string, unknown>): Employee | null {
   if (!id || !name) {
     return null;
   }
+  const workType = item.work_type ?? item.workType ?? "";
   return {
     id,
     name,
     type: (item.type as EmployeeType) ?? "正式工",
+    workType: workType ? String(workType) : "",
   };
 }
 
@@ -223,7 +233,6 @@ export default function Home() {
   async function loadEmployees() {
     try {
       const query = buildQuery({
-        is_active: true,
         page: 1,
         page_size: 200,
       });
@@ -458,7 +467,7 @@ export default function Home() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+        <div className="self-start rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">月份</span>
             <select
@@ -595,10 +604,10 @@ export default function Home() {
                         {item.employeeType || "-"}
                       </td>
                       <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {formatHours(item.normalHours)}h
+                        {formatHoursLabel(item.normalHours)}
                       </td>
                       <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {formatHours(item.overtimeHours)}h
+                        {formatHoursLabel(item.overtimeHours)}
                       </td>
                       <td className="py-3 text-foreground">
                         {formatWorkUnits(item.normalHours, item.overtimeHours)}工
@@ -668,17 +677,18 @@ export default function Home() {
                       className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
                       disabled={employees.length === 0}
                     >
-                      {employees.length === 0 ? (
-                        <option value="">暂无员工</option>
-                      ) : (
-                        employees.map((employee) => (
-                          <option key={employee.id} value={employee.id}>
-                            {employee.name}（{employee.type}）
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </label>
+                    {employees.length === 0 ? (
+                      <option value="">暂无员工</option>
+                    ) : (
+                      employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name} - {employee.workType || ""} -{" "}
+                          {employee.type}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
 
                   <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
                     日期
@@ -759,7 +769,8 @@ export default function Home() {
                                   className="h-4 w-4"
                                 />
                                 <span className="text-sm text-foreground">
-                                  {employee.name}（{employee.type}）
+                                  {employee.name} - {employee.workType || ""} -{" "}
+                                  {employee.type}
                                 </span>
                               </label>
                             ))}

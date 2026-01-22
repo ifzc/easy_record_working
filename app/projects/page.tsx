@@ -15,7 +15,6 @@ type Project = {
   planned_end_date?: string;
   remark?: string;
   createdAt?: string;
-  is_active?: boolean;
 };
 
 type FormState = {
@@ -83,7 +82,6 @@ function normalizeProject(item: Record<string, unknown>): Project {
     planned_end_date: plannedEndDate ? String(plannedEndDate) : undefined,
     remark: String(remark ?? ""),
     createdAt: createdAt ? String(createdAt) : "",
-    is_active: Boolean(item.is_active ?? item.isActive ?? true),
   };
 }
 
@@ -291,7 +289,6 @@ export default function ProjectsPage() {
     try {
       const query = buildQuery({
         keyword: keyword.trim(),
-        is_active: true,
         page: 1,
         page_size: 200,
         sort: "name_asc",

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiBlob, apiJson, API_BASE } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 import { loadAuthToken } from "../lib/auth";
@@ -11,15 +11,18 @@ type Employee = {
   id: string;
   name: string;
   type: EmployeeType;
+  workType?: string;
   remark?: string;
+  tags?: string[];
   createdAt?: string;
-  is_active?: boolean;
 };
 
 type FormState = {
   name: string;
   type: EmployeeType;
+  workType: string;
   remark: string;
+  tags: string[];
 };
 
 const employeeTypes: EmployeeType[] = ["正式工", "临时工"];
@@ -60,9 +63,32 @@ function extractList<T>(payload: unknown): T[] {
   return [];
 }
 
+function normalizeTags(raw: unknown): string[] {
+  if (!raw) {
+    return [];
+  }
+  if (Array.isArray(raw)) {
+    const tags = raw
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return Array.from(new Set(tags));
+  }
+  if (typeof raw === "string") {
+    const tags = raw
+      .split(/[|,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return Array.from(new Set(tags));
+  }
+  return [];
+}
+
 function normalizeEmployee(item: Record<string, unknown>): Employee {
   const createdAt = item.created_at ?? item.createdAt ?? "";
   const remark = item.remark ?? item.notes ?? "";
+  const tags = normalizeTags(item.tags ?? item.tag ?? item.labels ?? item.label);
+  const workType = item.work_type ?? item.workType ?? "";
   return {
     id: String(item.id ?? ""),
     name: String(item.name ?? item.employee_name ?? ""),
@@ -70,9 +96,10 @@ function normalizeEmployee(item: Record<string, unknown>): Employee {
       (item.type as EmployeeType) ??
       (item.employee_type as EmployeeType) ??
       "正式工",
+    workType: workType ? String(workType) : "",
     remark: String(remark ?? ""),
+    tags,
     createdAt: createdAt ? String(createdAt) : "",
-    is_active: Boolean(item.is_active ?? item.isActive ?? true),
   };
 }
 
@@ -93,24 +120,63 @@ function formatDateTime(value?: string) {
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterTag, setFilterTag] = useState("");
+  const [filterWorkType, setFilterWorkType] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({
     name: "",
     type: "正式工",
+    workType: "",
     remark: "",
+    tags: [],
   });
+  const [tagInput, setTagInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { notify, confirm } = useNotice();
   const displayEmployees = searchText.trim()
     ? employees.filter((employee) => employee.name.includes(searchText.trim()))
     : employees;
+  const tagOptions = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach((employee) => {
+      employee.tags?.forEach((tag) => set.add(tag));
+    });
+    if (filterTag) {
+      set.add(filterTag);
+    }
+    return Array.from(set);
+  }, [employees, filterTag]);
+  const workTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach((employee) => {
+      if (employee.workType) {
+        set.add(employee.workType);
+      }
+    });
+    if (filterWorkType) {
+      set.add(filterWorkType);
+    }
+    return Array.from(set);
+  }, [employees, filterWorkType]);
 
-  async function loadEmployees(keyword: string) {
+  async function loadEmployees(overrides?: {
+    keyword?: string;
+    type?: string;
+    tag?: string;
+    workType?: string;
+  }) {
     try {
+      const keyword = overrides?.keyword ?? searchText;
+      const type = overrides?.type ?? filterType;
+      const tag = overrides?.tag ?? filterTag;
+      const workType = overrides?.workType ?? filterWorkType;
       const query = buildQuery({
         keyword: keyword.trim(),
-        is_active: true,
+        type: type || undefined,
+        tag: tag.trim() || undefined,
+        work_type: workType.trim() || undefined,
         page: 1,
         page_size: 200,
         sort: "name_asc",
@@ -127,14 +193,15 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      loadEmployees(searchText);
+      loadEmployees();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchText]);
+  }, [searchText, filterType, filterTag, filterWorkType]);
 
   function openCreateModal() {
     setEditingEmployeeId(null);
-    setFormState({ name: "", type: "正式工", remark: "" });
+    setFormState({ name: "", type: "正式工", workType: "", remark: "", tags: [] });
+    setTagInput("");
     setIsModalOpen(true);
   }
 
@@ -143,9 +210,36 @@ export default function EmployeesPage() {
     setFormState({
       name: employee.name,
       type: employee.type,
+      workType: employee.workType ?? "",
       remark: employee.remark ?? "",
+      tags: employee.tags ?? [],
     });
+    setTagInput("");
     setIsModalOpen(true);
+  }
+
+  function addTag(value: string) {
+    const next = value.trim();
+    if (!next) {
+      return;
+    }
+    setFormState((prev) => {
+      if (prev.tags.includes(next)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        tags: [...prev.tags, next],
+      };
+    });
+    setTagInput("");
+  }
+
+  function removeTag(tag: string) {
+    setFormState((prev) => ({
+      ...prev,
+      tags: prev.tags.filter((item) => item !== tag),
+    }));
   }
 
   async function handleDelete(employeeId: string) {
@@ -155,7 +249,7 @@ export default function EmployeesPage() {
     }
     try {
       await apiJson(`/api/employees/${employeeId}`, { method: "DELETE" });
-      await loadEmployees(searchText);
+      await loadEmployees();
       notify("员工已删除。", "success");
     } catch (error) {
       const message =
@@ -167,9 +261,19 @@ export default function EmployeesPage() {
   async function handleFormSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = formState.name.trim();
+    const workType = formState.workType.trim();
     if (!name) {
       notify("请输入员工姓名。", "warning");
       return;
+    }
+
+    const pendingTag = tagInput.trim();
+    const tagsToSave = pendingTag
+      ? Array.from(new Set([...formState.tags, pendingTag]))
+      : formState.tags;
+    if (pendingTag) {
+      setFormState((prev) => ({ ...prev, tags: tagsToSave }));
+      setTagInput("");
     }
 
     try {
@@ -179,7 +283,9 @@ export default function EmployeesPage() {
           body: {
             name,
             type: formState.type,
+            work_type: workType,
             remark: formState.remark.trim(),
+            tags: tagsToSave,
           },
         });
         notify("员工已更新。", "success");
@@ -189,13 +295,15 @@ export default function EmployeesPage() {
           body: {
             name,
             type: formState.type,
+            work_type: workType,
             remark: formState.remark.trim(),
+            tags: tagsToSave,
           },
         });
         notify("员工已新增。", "success");
       }
       setIsModalOpen(false);
-      await loadEmployees(searchText);
+      await loadEmployees();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "保存失败，请稍后再试。";
@@ -231,7 +339,7 @@ export default function EmployeesPage() {
       if (!response.ok) {
         throw new Error(`导入失败(${response.status})`);
       }
-      await loadEmployees(searchText);
+      await loadEmployees();
       notify("员工导入成功。", "success");
     } catch (error) {
       const message =
@@ -244,7 +352,7 @@ export default function EmployeesPage() {
 
   async function handleExport() {
     try {
-      const query = buildQuery({ format: "csv", is_active: true });
+      const query = buildQuery({ format: "csv" });
       const blob = await apiBlob(`/api/employees/export${query}`);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -274,12 +382,50 @@ export default function EmployeesPage() {
 
       <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <input
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="搜索员工"
-            className="h-8 w-40 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="搜索员工"
+              className="h-8 w-36 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            />
+            <select
+              value={filterType}
+              onChange={(event) => setFilterType(event.target.value)}
+              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            >
+              <option value="">全部类型</option>
+              {employeeTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filterWorkType}
+              onChange={(event) => setFilterWorkType(event.target.value)}
+              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            >
+              <option value="">全部工种</option>
+              {workTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filterTag}
+              onChange={(event) => setFilterTag(event.target.value)}
+              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            >
+              <option value="">全部标签</option>
+              {tagOptions.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               ref={fileInputRef}
@@ -313,7 +459,7 @@ export default function EmployeesPage() {
         </div>
 
         <p className="mt-2 text-xs text-[color:var(--muted-foreground)]">
-          导入字段：员工姓名、员工类型（正式工/临时工）。支持 Excel 导出为 CSV 后导入。
+          导入字段：员工姓名、员工类型（正式工/临时工）、工种。支持 Excel 导出为 CSV 后导入。
         </p>
 
         <div className="mt-4 overflow-x-auto">
@@ -322,6 +468,8 @@ export default function EmployeesPage() {
               <tr>
                 <th className="pb-2 font-medium">员工姓名</th>
                 <th className="pb-2 font-medium">员工类型</th>
+                <th className="pb-2 font-medium">工种</th>
+                <th className="pb-2 font-medium">标签</th>
                 <th className="pb-2 font-medium">备注</th>
                 <th className="pb-2 font-medium">创建时间</th>
                 <th className="pb-2 font-medium">操作</th>
@@ -331,7 +479,7 @@ export default function EmployeesPage() {
               {displayEmployees.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={7}
                     className="py-6 text-center text-[color:var(--muted-foreground)]"
                   >
                     暂无员工
@@ -346,6 +494,25 @@ export default function EmployeesPage() {
                     <td className="py-3 text-foreground">{employee.name}</td>
                     <td className="py-3 text-[color:var(--muted-foreground)]">
                       {employee.type}
+                    </td>
+                    <td className="py-3 text-[color:var(--muted-foreground)]">
+                      {employee.workType || "-"}
+                    </td>
+                    <td className="py-3 text-[color:var(--muted-foreground)]">
+                      {employee.tags && employee.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {employee.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="py-3 text-[color:var(--muted-foreground)]">
                       {employee.remark || "-"}
@@ -428,6 +595,68 @@ export default function EmployeesPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                工种
+                <input
+                  value={formState.workType}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      workType: event.target.value,
+                    }))
+                  }
+                  placeholder="例如：钢筋、木工、安装"
+                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                标签
+                <div className="flex gap-2">
+                  <input
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addTag(tagInput);
+                      }
+                    }}
+                    placeholder="输入标签后回车"
+                    className="h-9 flex-1 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addTag(tagInput)}
+                    className="h-9 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
+                  >
+                    添加
+                  </button>
+                </div>
+                {formState.tags.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {formState.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-foreground"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => removeTag(tag)}
+                          className="text-[10px] text-[color:var(--muted-foreground)] hover:text-foreground"
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                  回车添加，可多选
+                </span>
               </label>
 
               <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
