@@ -25,8 +25,8 @@ type TimeEntry = {
 };
 
 type FormState = {
-  employeeId: string;
-  date: string;
+  employeeIds: string[];
+  dates: string[];
   normalHours: number;
   overtimeHours: number;
   remark: string;
@@ -192,8 +192,8 @@ export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({
-    employeeId: "",
-    date: todayKey,
+    employeeIds: [],
+    dates: [],
     normalHours: 8,
     overtimeHours: 0,
     remark: "",
@@ -232,9 +232,6 @@ export default function Home() {
         .map(normalizeEmployee)
         .filter((item): item is Employee => Boolean(item));
       setEmployees(list);
-      if (!formState.employeeId && list.length > 0) {
-        setFormState((prev) => ({ ...prev, employeeId: list[0].id }));
-      }
     } catch (error) {
       console.error(error);
     }
@@ -314,8 +311,8 @@ export default function Home() {
   function openCreateModal() {
     setEditingEntryId(null);
     setFormState({
-      employeeId: employees[0]?.id ?? "",
-      date: selectedDate,
+      employeeIds: [],
+      dates: [selectedDate],
       normalHours: 8,
       overtimeHours: 0,
       remark: "",
@@ -326,8 +323,8 @@ export default function Home() {
   function openEditModal(entry: TimeEntry) {
     setEditingEntryId(entry.id);
     setFormState({
-      employeeId: entry.employeeId,
-      date: entry.date,
+      employeeIds: [entry.employeeId],
+      dates: [entry.date],
       normalHours: entry.normalHours,
       overtimeHours: entry.overtimeHours,
       remark: entry.remark ?? "",
@@ -354,41 +351,85 @@ export default function Home() {
 
   async function handleFormSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!formState.employeeId || !formState.date) {
-      notify("请选择员工并填写日期。", "warning");
-      return;
-    }
 
-    try {
-      const body = {
-        employee_id: formState.employeeId,
-        work_date: formState.date,
-        normal_hours: formState.normalHours,
-        overtime_hours: formState.overtimeHours,
-        remark: formState.remark.trim(),
-      };
+    if (editingEntryId) {
+      // 编辑模式：单条记录编辑
+      if (formState.employeeIds.length === 0 || formState.dates.length === 0) {
+        notify("请选择员工并填写日期。", "warning");
+        return;
+      }
 
-      if (editingEntryId) {
+      try {
+        const body = {
+          employee_id: formState.employeeIds[0],
+          work_date: formState.dates[0],
+          normal_hours: formState.normalHours,
+          overtime_hours: formState.overtimeHours,
+          remark: formState.remark.trim(),
+        };
+
         await apiJson(`/api/time-entries/${editingEntryId}`, {
           method: "PUT",
           body,
         });
         notify("记工记录已更新。", "success");
-      } else {
-        await apiJson("/api/time-entries", {
+        setIsModalOpen(false);
+        await loadEntries();
+        await loadSummary(selectedMonth);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "保存失败，请稍后再试。";
+        notify(message, "error");
+      }
+    } else {
+      // 新增模式：批量创建
+      if (formState.employeeIds.length === 0) {
+        notify("请至少选择一位员工。", "warning");
+        return;
+      }
+      if (formState.dates.length === 0) {
+        notify("请至少选择一个日期。", "warning");
+        return;
+      }
+
+      try {
+        const body = {
+          employee_ids: formState.employeeIds,
+          work_dates: formState.dates,
+          normal_hours: formState.normalHours,
+          overtime_hours: formState.overtimeHours,
+          remark: formState.remark.trim(),
+        };
+
+        const payload = await apiJson("/api/time-entries/batch", {
           method: "POST",
           body,
         });
-        notify("记工记录已新增。", "success");
-      }
 
-      setIsModalOpen(false);
-      await loadEntries();
-      await loadSummary(selectedMonth);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "保存失败，请稍后再试。";
-      notify(message, "error");
+        const result = (payload as { data?: unknown }).data ?? payload;
+        const created = Number((result as { created?: number }).created ?? 0);
+        const skipped = Number((result as { skipped?: number }).skipped ?? 0);
+        const total = Number((result as { total?: number }).total ?? 0);
+
+        setIsModalOpen(false);
+        await loadEntries();
+        await loadSummary(selectedMonth);
+
+        if (skipped === 0) {
+          notify(`批量记工成功，共创建 ${created} 条记录。`, "success");
+        } else if (created === 0) {
+          notify(`批量记工失败，${skipped} 条记录被跳过（可能已存在）。`, "error");
+        } else {
+          notify(
+            `批量记工部分成功，成功 ${created} 条，跳过 ${skipped} 条。`,
+            "warning"
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "保存失败，请稍后再试。";
+        notify(message, "error");
+      }
     }
   }
 
@@ -612,45 +653,199 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="mt-4 space-y-3">
-              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-                员工
-                <select
-                  value={formState.employeeId}
-                  onChange={(event) =>
-                    setFormState((prev) => ({
-                      ...prev,
-                      employeeId: event.target.value,
-                    }))
-                  }
-                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
-                  disabled={employees.length === 0}
-                >
-                  {employees.length === 0 ? (
-                    <option value="">暂无员工</option>
-                  ) : (
-                    employees.map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.name}（{employee.type}）
-                      </option>
-                    ))
-                  )}
-                </select>
-              </label>
+              {editingEntryId ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                    员工
+                    <select
+                      value={formState.employeeIds[0] ?? ""}
+                      onChange={(event) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          employeeIds: [event.target.value],
+                        }))
+                      }
+                      className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                      disabled={employees.length === 0}
+                    >
+                      {employees.length === 0 ? (
+                        <option value="">暂无员工</option>
+                      ) : (
+                        employees.map((employee) => (
+                          <option key={employee.id} value={employee.id}>
+                            {employee.name}（{employee.type}）
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
 
-              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-                日期
-                <input
-                  type="date"
-                  value={formState.date}
-                  onChange={(event) =>
-                    setFormState((prev) => ({
-                      ...prev,
-                      date: event.target.value,
-                    }))
-                  }
-                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
-                />
-              </label>
+                  <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                    日期
+                    <input
+                      type="date"
+                      value={formState.dates[0] ?? ""}
+                      onChange={(event) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          dates: [event.target.value],
+                        }))
+                      }
+                      className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                    <div className="flex items-center justify-between">
+                      <span>选择员工</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormState((prev) => ({
+                              ...prev,
+                              employeeIds: employees.map((e) => e.id),
+                            }))
+                          }
+                          className="text-[10px] text-foreground hover:underline"
+                        >
+                          全选
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormState((prev) => ({
+                              ...prev,
+                              employeeIds: [],
+                            }))
+                          }
+                          className="text-[10px] text-[color:var(--muted-foreground)] hover:underline"
+                        >
+                          清空
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
+                      {employees.length === 0 ? (
+                        <div className="py-2 text-center text-[color:var(--muted-foreground)]">
+                          暂无员工
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {employees.map((employee) => (
+                            <label
+                              key={employee.id}
+                              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-[color:var(--surface-muted)]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formState.employeeIds.includes(
+                                  employee.id
+                                )}
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setFormState((prev) => ({
+                                    ...prev,
+                                    employeeIds: checked
+                                      ? [...prev.employeeIds, employee.id]
+                                      : prev.employeeIds.filter(
+                                          (id) => id !== employee.id
+                                        ),
+                                  }));
+                                }}
+                                className="h-4 w-4"
+                              />
+                              <span className="text-sm text-foreground">
+                                {employee.name}（{employee.type}）
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                      已选 {formState.employeeIds.length} 位员工
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                    <div className="flex items-center justify-between">
+                      <span>选择日期</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormState((prev) => ({
+                            ...prev,
+                            dates: [],
+                          }))
+                        }
+                        className="text-[10px] text-[color:var(--muted-foreground)] hover:underline"
+                      >
+                        清空
+                      </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
+                      <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] text-[color:var(--muted-foreground)]">
+                        {["一", "二", "三", "四", "五", "六", "日"].map(
+                          (label) => (
+                            <div key={label}>{label}</div>
+                          )
+                        )}
+                      </div>
+                      <div className="grid grid-cols-7 gap-1">
+                        {calendarCells.map((cell, index) => {
+                          if (!cell) {
+                            return (
+                              <div
+                                key={`empty-${index}`}
+                                className="aspect-square w-full"
+                              />
+                            );
+                          }
+
+                          const isSelected = formState.dates.includes(
+                            cell.dateKey
+                          );
+                          const isToday = cell.dateKey === todayKey;
+
+                          return (
+                            <button
+                              key={cell.dateKey}
+                              type="button"
+                              onClick={() => {
+                                setFormState((prev) => ({
+                                  ...prev,
+                                  dates: isSelected
+                                    ? prev.dates.filter(
+                                        (d) => d !== cell.dateKey
+                                      )
+                                    : [...prev.dates, cell.dateKey],
+                                }));
+                              }}
+                              className={`flex aspect-square w-full items-center justify-center rounded text-xs transition ${
+                                isSelected
+                                  ? "bg-foreground text-background"
+                                  : "hover:bg-[color:var(--surface-muted)]"
+                              } ${
+                                isToday
+                                  ? "ring-1 ring-[color:var(--foreground)]/40"
+                                  : ""
+                              }`}
+                            >
+                              {cell.day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                      已选 {formState.dates.length} 个日期
+                    </span>
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">

@@ -219,6 +219,9 @@ export default function Header() {
               <Link className="transition hover:text-foreground" href="/employees">
                 员工管理
               </Link>
+              <Link className="transition hover:text-foreground" href="/projects">
+                项目管理
+              </Link>
               <Link className="transition hover:text-foreground" href="/reports">
                 工时总览
               </Link>
