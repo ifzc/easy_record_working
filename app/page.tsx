@@ -638,7 +638,7 @@ export default function Home() {
 
       {isModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="w-full max-w-xl rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">
                 {editingEntryId ? "编辑记工" : "新增记工"}
@@ -697,28 +697,89 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-                    <div className="flex items-center justify-between">
-                      <span>选择员工</span>
-                      <div className="flex gap-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                      <div className="flex items-center justify-between">
+                        <span>选择员工</span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormState((prev) => ({
+                                ...prev,
+                                employeeIds: employees.map((e) => e.id),
+                              }))
+                            }
+                            className="text-[10px] text-foreground hover:underline"
+                          >
+                            全选
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormState((prev) => ({
+                                ...prev,
+                                employeeIds: [],
+                              }))
+                            }
+                            className="text-[10px] text-[color:var(--muted-foreground)] hover:underline"
+                          >
+                            清空
+                          </button>
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
+                        {employees.length === 0 ? (
+                          <div className="py-2 text-center text-[color:var(--muted-foreground)]">
+                            暂无员工
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {employees.map((employee) => (
+                              <label
+                                key={employee.id}
+                                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-[color:var(--surface-muted)]"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={formState.employeeIds.includes(
+                                    employee.id
+                                  )}
+                                  onChange={(event) => {
+                                    const checked = event.target.checked;
+                                    setFormState((prev) => ({
+                                      ...prev,
+                                      employeeIds: checked
+                                        ? [...prev.employeeIds, employee.id]
+                                        : prev.employeeIds.filter(
+                                            (id) => id !== employee.id
+                                          ),
+                                    }));
+                                  }}
+                                  className="h-4 w-4"
+                                />
+                                <span className="text-sm text-foreground">
+                                  {employee.name}（{employee.type}）
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                        已选 {formState.employeeIds.length} 位员工
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                      <div className="flex items-center justify-between">
+                        <span>选择日期</span>
                         <button
                           type="button"
                           onClick={() =>
                             setFormState((prev) => ({
                               ...prev,
-                              employeeIds: employees.map((e) => e.id),
-                            }))
-                          }
-                          className="text-[10px] text-foreground hover:underline"
-                        >
-                          全选
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFormState((prev) => ({
-                              ...prev,
-                              employeeIds: [],
+                              dates: [],
                             }))
                           }
                           className="text-[10px] text-[color:var(--muted-foreground)] hover:underline"
@@ -726,123 +787,64 @@ export default function Home() {
                           清空
                         </button>
                       </div>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
-                      {employees.length === 0 ? (
-                        <div className="py-2 text-center text-[color:var(--muted-foreground)]">
-                          暂无员工
+                      <div className="max-h-64 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
+                        <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] text-[color:var(--muted-foreground)]">
+                          {["一", "二", "三", "四", "五", "六", "日"].map(
+                            (label) => (
+                              <div key={label}>{label}</div>
+                            )
+                          )}
                         </div>
-                      ) : (
-                        <div className="space-y-1">
-                          {employees.map((employee) => (
-                            <label
-                              key={employee.id}
-                              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-[color:var(--surface-muted)]"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={formState.employeeIds.includes(
-                                  employee.id
-                                )}
-                                onChange={(event) => {
-                                  const checked = event.target.checked;
+                        <div className="grid grid-cols-7 gap-1 place-items-center">
+                          {calendarCells.map((cell, index) => {
+                            if (!cell) {
+                              return (
+                                <div
+                                  key={`empty-${index}`}
+                                  className="h-7 w-7"
+                                />
+                              );
+                            }
+
+                            const isSelected = formState.dates.includes(
+                              cell.dateKey
+                            );
+                            const isToday = cell.dateKey === todayKey;
+
+                            return (
+                              <button
+                                key={cell.dateKey}
+                                type="button"
+                                onClick={() => {
                                   setFormState((prev) => ({
                                     ...prev,
-                                    employeeIds: checked
-                                      ? [...prev.employeeIds, employee.id]
-                                      : prev.employeeIds.filter(
-                                          (id) => id !== employee.id
-                                        ),
+                                    dates: isSelected
+                                      ? prev.dates.filter(
+                                          (d) => d !== cell.dateKey
+                                        )
+                                      : [...prev.dates, cell.dateKey],
                                   }));
                                 }}
-                                className="h-4 w-4"
-                              />
-                              <span className="text-sm text-foreground">
-                                {employee.name}（{employee.type}）
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-[color:var(--muted-foreground)]">
-                      已选 {formState.employeeIds.length} 位员工
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-                    <div className="flex items-center justify-between">
-                      <span>选择日期</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFormState((prev) => ({
-                            ...prev,
-                            dates: [],
-                          }))
-                        }
-                        className="text-[10px] text-[color:var(--muted-foreground)] hover:underline"
-                      >
-                        清空
-                      </button>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto rounded-md border border-[color:var(--border)] bg-transparent p-2">
-                      <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] text-[color:var(--muted-foreground)]">
-                        {["一", "二", "三", "四", "五", "六", "日"].map(
-                          (label) => (
-                            <div key={label}>{label}</div>
-                          )
-                        )}
-                      </div>
-                      <div className="grid grid-cols-7 gap-1">
-                        {calendarCells.map((cell, index) => {
-                          if (!cell) {
-                            return (
-                              <div
-                                key={`empty-${index}`}
-                                className="aspect-square w-full"
-                              />
+                                className={`flex h-7 w-7 items-center justify-center rounded text-[11px] transition ${
+                                  isSelected
+                                    ? "bg-foreground text-background"
+                                    : "hover:bg-[color:var(--surface-muted)]"
+                                } ${
+                                  isToday
+                                    ? "ring-1 ring-[color:var(--foreground)]/40"
+                                    : ""
+                                }`}
+                              >
+                                {cell.day}
+                              </button>
                             );
-                          }
-
-                          const isSelected = formState.dates.includes(
-                            cell.dateKey
-                          );
-                          const isToday = cell.dateKey === todayKey;
-
-                          return (
-                            <button
-                              key={cell.dateKey}
-                              type="button"
-                              onClick={() => {
-                                setFormState((prev) => ({
-                                  ...prev,
-                                  dates: isSelected
-                                    ? prev.dates.filter(
-                                        (d) => d !== cell.dateKey
-                                      )
-                                    : [...prev.dates, cell.dateKey],
-                                }));
-                              }}
-                              className={`flex aspect-square w-full items-center justify-center rounded text-xs transition ${
-                                isSelected
-                                  ? "bg-foreground text-background"
-                                  : "hover:bg-[color:var(--surface-muted)]"
-                              } ${
-                                isToday
-                                  ? "ring-1 ring-[color:var(--foreground)]/40"
-                                  : ""
-                              }`}
-                            >
-                              {cell.day}
-                            </button>
-                          );
-                        })}
+                          })}
+                        </div>
                       </div>
+                      <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                        已选 {formState.dates.length} 个日期
+                      </span>
                     </div>
-                    <span className="text-[10px] text-[color:var(--muted-foreground)]">
-                      已选 {formState.dates.length} 个日期
-                    </span>
                   </div>
                 </>
               )}

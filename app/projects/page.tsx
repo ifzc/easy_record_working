@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 
-type ProjectStatus = "active" | "pending" | "completed" | "archived";
+type ProjectStatus = "active" | "pending" | "completed";
 
 type Project = {
   id: string;
@@ -31,7 +31,6 @@ const projectStatuses: { value: ProjectStatus; label: string }[] = [
   { value: "active", label: "进行中" },
   { value: "pending", label: "待开始" },
   { value: "completed", label: "已完成" },
-  { value: "archived", label: "已归档" },
 ];
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {
@@ -131,10 +130,131 @@ function getStatusLabel(status: ProjectStatus): string {
   return item?.label ?? status;
 }
 
+function getGanttBarClass(status: ProjectStatus): string {
+  switch (status) {
+    case "pending":
+      return "bg-muted-foreground/40";
+    case "completed":
+      return "bg-emerald-300/70";
+    default:
+      return "bg-sky-300/70";
+  }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_GANTT_DAYS = 31;
+const GANTT_ZOOM_STEP_DAYS = 7;
+const MAX_GANTT_ZOOM_OUT = 8;
+const MAX_GANTT_LABELS_OVER_31 = 15;
+
+function parseDate(value?: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date: Date, amount: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function diffDays(start: Date, end: Date): number {
+  return Math.round((startOfDay(end).getTime() - startOfDay(start).getTime()) / DAY_MS);
+}
+
+function formatDateLabel(date: Date): string {
+  const pad = (num: number) => num.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function formatMonthDay(date: Date): string {
+  const pad = (num: number) => num.toString().padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getCurrentMonthRange(base: Date): { start: Date; end: Date } {
+  const start = startOfDay(new Date(base.getFullYear(), base.getMonth(), 1));
+  let end = startOfDay(new Date(base.getFullYear(), base.getMonth() + 1, 0));
+  const rangeDays = diffDays(start, end) + 1;
+  if (rangeDays < MIN_GANTT_DAYS) {
+    end = addDays(end, MIN_GANTT_DAYS - rangeDays);
+  }
+  return { start, end };
+}
+
+function applyGanttZoom(
+  range: { start: Date; end: Date },
+  zoomSteps: number,
+): { start: Date; end: Date } {
+  if (zoomSteps === 0) {
+    return range;
+  }
+  const offset = Math.abs(zoomSteps) * GANTT_ZOOM_STEP_DAYS;
+  if (zoomSteps > 0) {
+    return {
+      start: addDays(range.start, offset),
+      end: addDays(range.end, -offset),
+    };
+  }
+  return {
+    start: addDays(range.start, -offset),
+    end: addDays(range.end, offset),
+  };
+}
+
+type GanttAxisLabel = {
+  offset: number;
+  label: string;
+};
+
+function buildGanttAxisLabels(start: Date, end: Date): GanttAxisLabel[] {
+  const totalDays = Math.max(1, diffDays(start, end) + 1);
+  const labels: GanttAxisLabel[] = [];
+
+  if (totalDays <= 31) {
+    for (let index = 0; index < totalDays; index += 1) {
+      const date = addDays(start, index);
+      labels.push({ offset: index, label: String(date.getDate()) });
+    }
+    return labels;
+  }
+
+  const maxLabels = Math.min(MAX_GANTT_LABELS_OVER_31, totalDays);
+  if (maxLabels <= 1) {
+    labels.push({ offset: 0, label: formatMonthDay(start) });
+    return labels;
+  }
+  let lastOffset = -1;
+  for (let index = 0; index < maxLabels; index += 1) {
+    const offset = Math.round((index * (totalDays - 1)) / (maxLabels - 1));
+    if (offset === lastOffset) {
+      continue;
+    }
+    lastOffset = offset;
+    labels.push({
+      offset,
+      label: formatMonthDay(addDays(start, offset)),
+    });
+  }
+  return labels;
+}
+
 export default function ProjectsPage() {
+  const [today] = useState(() => new Date());
   const [projects, setProjects] = useState<Project[]>([]);
   const [searchText, setSearchText] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [ganttZoom, setGanttZoom] = useState(0);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({
     name: "",
@@ -151,6 +271,21 @@ export default function ProjectsPage() {
         (project.code && project.code.includes(searchText.trim()))
       )
     : projects;
+  const baseGanttRange = getCurrentMonthRange(today);
+  const baseGanttDays = Math.max(1, diffDays(baseGanttRange.start, baseGanttRange.end) + 1);
+  const maxZoomInSteps = Math.max(
+    0,
+    Math.floor((baseGanttDays - MIN_GANTT_DAYS) / (2 * GANTT_ZOOM_STEP_DAYS)),
+  );
+  const ganttZoomSteps = Math.max(
+    -MAX_GANTT_ZOOM_OUT,
+    Math.min(ganttZoom, maxZoomInSteps),
+  );
+  const ganttRange = applyGanttZoom(baseGanttRange, ganttZoomSteps);
+  const ganttAxisLabels = buildGanttAxisLabels(ganttRange.start, ganttRange.end);
+  const ganttTotalDays = Math.max(1, diffDays(ganttRange.start, ganttRange.end) + 1);
+  const canZoomIn = ganttZoomSteps < maxZoomInSteps;
+  const canZoomOut = ganttZoomSteps > -MAX_GANTT_ZOOM_OUT;
 
   async function loadProjects(keyword: string) {
     try {
@@ -292,7 +427,180 @@ export default function ProjectsPage() {
             </button>
           </div>
         </div>
-      </div>
+        <div className="mt-4 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-foreground">项目甘特图</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-[color:var(--muted-foreground)]">
+                范围 {formatDateLabel(ganttRange.start)} ~ {formatDateLabel(ganttRange.end)}（展示{ganttTotalDays}天）
+              </span>
+              <div className="flex items-center gap-1 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-1 py-0.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGanttZoom((prev) =>
+                      Math.max(prev - 1, -MAX_GANTT_ZOOM_OUT),
+                    )
+                  }
+                  disabled={!canZoomOut}
+                  className="h-6 w-6 rounded text-xs text-foreground hover:bg-[color:var(--surface-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="缩小日期轴"
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGanttZoom((prev) => Math.min(prev + 1, maxZoomInSteps))
+                  }
+                  disabled={!canZoomIn}
+                  className="h-6 w-6 rounded text-xs text-foreground hover:bg-[color:var(--surface-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="放大日期轴"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGanttZoom(0)}
+                  disabled={ganttZoomSteps === 0}
+                  className="h-6 rounded px-2 text-[10px] text-foreground hover:bg-[color:var(--surface-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="重置日期轴"
+                >
+                  重置
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 overflow-x-hidden">
+            <div className="w-full space-y-2">
+              <div className="grid grid-cols-[200px_1fr] gap-3 text-[10px] text-[color:var(--muted-foreground)]">
+                <div>项目</div>
+                <div className="relative h-4">
+                  {ganttAxisLabels.map((axisLabel, index) => {
+                    const position = (axisLabel.offset + 0.5) / ganttTotalDays;
+                    const isFirst = index === 0;
+                    const isLast = index === ganttAxisLabels.length - 1;
+                    const translateX = isFirst ? "0%" : isLast ? "-100%" : "-50%";
+                    return (
+                      <span
+                        key={`${axisLabel.offset}-${axisLabel.label}`}
+                        className="absolute top-0 whitespace-nowrap"
+                        style={{
+                          left: `${position * 100}%`,
+                          transform: `translateX(${translateX})`,
+                        }}
+                      >
+                        {axisLabel.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              {displayProjects.length === 0 ? (
+                <div className="py-4 text-center text-xs text-[color:var(--muted-foreground)]">
+                  暂无项目
+                </div>
+              ) : (
+                displayProjects.map((project) => {
+                  const rawStart = parseDate(project.planned_start_date);
+                  const rawEnd = parseDate(project.planned_end_date);
+                  const fallback = rawStart ?? rawEnd;
+                  let barStart = rawStart ?? fallback;
+                  let barEnd = rawEnd ?? fallback;
+                  if (barStart && barEnd && barEnd < barStart) {
+                    const temp = barStart;
+                    barStart = barEnd;
+                    barEnd = temp;
+                  }
+                  const hasRange = Boolean(barStart && barEnd);
+                  const visibleStart = hasRange
+                    ? barStart! < ganttRange.start
+                      ? ganttRange.start
+                      : barStart!
+                    : null;
+                  const visibleEnd = hasRange
+                    ? barEnd! > ganttRange.end
+                      ? ganttRange.end
+                      : barEnd!
+                    : null;
+                  const isClippedLeft = hasRange && barStart! < ganttRange.start;
+                  const isClippedRight = hasRange && barEnd! > ganttRange.end;
+                  const isVisible =
+                    Boolean(visibleStart && visibleEnd) &&
+                    (visibleEnd as Date) >= (visibleStart as Date);
+                  const offsetDays = isVisible
+                    ? diffDays(ganttRange.start, visibleStart as Date)
+                    : 0;
+                  const barDays = isVisible
+                    ? Math.max(
+                        1,
+                        diffDays(visibleStart as Date, visibleEnd as Date) + 1,
+                      )
+                    : 0;
+                  const left = isVisible ? (offsetDays / ganttTotalDays) * 100 : 0;
+                  const width = isVisible ? (barDays / ganttTotalDays) * 100 : 0;
+
+                  return (
+                    <div
+                      key={project.id}
+                      className="grid grid-cols-[200px_1fr] items-center gap-3"
+                    >
+                      <div className="truncate text-xs text-foreground">
+                        {project.name}
+                      </div>
+                      <div className="relative h-7 rounded-md bg-[color:var(--surface)]">
+                        <div
+                          className="absolute inset-0 pointer-events-none opacity-60"
+                          style={{
+                            backgroundImage:
+                              "linear-gradient(to right, var(--border) 1px, transparent 1px)",
+                            backgroundSize: `${100 / ganttTotalDays}% 100%`,
+                            boxShadow: "inset -1px 0 0 var(--border)",
+                          }}
+                        />
+                        {hasRange ? (
+                          isVisible ? (
+                          <div
+                            className={`absolute top-1/2 h-2 -translate-y-1/2 z-10 ${getGanttBarClass(
+                              project.status,
+                            )} ${
+                              isClippedLeft && isClippedRight
+                                ? "rounded-none"
+                                : isClippedLeft
+                                  ? "rounded-r-full"
+                                  : isClippedRight
+                                    ? "rounded-l-full"
+                                    : "rounded-full"
+                            } relative`}
+                            style={{ left: `${left}%`, width: `${width}%` }}
+                            title={`${formatDateLabel(barStart!)} ~ ${formatDateLabel(barEnd!)}`}
+                          >
+                            {isClippedLeft ? (
+                              <span className="absolute left-0 top-0 h-full w-0.5 bg-foreground/90" />
+                            ) : null}
+                            {isClippedRight ? (
+                              <span className="absolute right-0 top-0 h-full w-0.5 bg-foreground/90" />
+                            ) : null}
+                          </div>
+                          ) : (
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-[color:var(--muted-foreground)] z-10">
+                              不在当前月份
+                            </span>
+                          )
+                        ) : (
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-[color:var(--muted-foreground)] z-10">
+                            未设置日期
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[color:var(--muted-foreground)]">
               <tr>
