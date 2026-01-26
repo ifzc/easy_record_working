@@ -189,7 +189,7 @@ function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
   const date = String(item.work_date ?? item.workDate ?? item.date ?? "");
   const workType = item.work_type ?? item.workType ?? item.employee_work_type ?? "";
   const projectId = item.project_id ?? item.projectId;
-  const projectName = item.project_name ?? item.projectName ?? item.project?.name ?? "";
+  const projectName = item.project_name ?? item.projectName ?? (item.project as { name?: string } | undefined)?.name ?? "";
   const remark = item.remark ?? item.notes ?? item.note ?? "";
   const createdAt = item.created_at ?? item.createdAt ?? "";
   if (!id || !employeeId || !date) {
@@ -553,9 +553,9 @@ export default function Home() {
   return (
     <section className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">工时填报</h1>
+        <h1 className="text-2xl font-semibold">每日记工</h1>
         <p className="text-sm text-[color:var(--muted-foreground)]">
-          选择日期查看记工明细，支持新增、编辑与删除记录。
+          选择日期查看记工明细，每日记工，支持新增、编辑与删除记录。
         </p>
       </div>
 

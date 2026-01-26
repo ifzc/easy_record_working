@@ -69,6 +69,9 @@ type WorkUnitSummaryItem = {
   employeeName?: string;
   work_units?: number;
   workUnits?: number;
+  work_type?: string;
+  workType?: string;
+  tag?: string;
 };
 
 type WorkUnitSummary = {
@@ -272,6 +275,24 @@ function normalizeEmployeeWorkUnits(item: WorkUnitSummaryItem): WorkUnitSummary 
   };
 }
 
+function normalizeWorkTypeWorkUnits(item: WorkUnitSummaryItem): WorkUnitSummary | null {
+  const workType = String(item.work_type ?? item.workType ?? "未设置工种");
+  return {
+    id: workType,
+    name: workType,
+    workUnits: Number(item.work_units ?? item.workUnits ?? 0),
+  };
+}
+
+function normalizeTagWorkUnits(item: WorkUnitSummaryItem): WorkUnitSummary | null {
+  const tag = String(item.tag ?? "未设置标签");
+  return {
+    id: tag,
+    name: tag,
+    workUnits: Number(item.work_units ?? item.workUnits ?? 0),
+  };
+}
+
 function polarToCartesian(cx: number, cy: number, radius: number, angle: number) {
   const rad = ((angle - 90) * Math.PI) / 180;
   return {
@@ -308,12 +329,15 @@ function buildPieSlices(items: WorkUnitSummary[]) {
     const startAngle = (cursor / total) * 360;
     cursor += item.workUnits;
     const endAngle = (cursor / total) * 360;
+    const midAngle = (startAngle + endAngle) / 2;
     return {
       id: item.id,
       name: item.name,
       workUnits: item.workUnits,
       color: PIE_COLORS[index % PIE_COLORS.length],
       path: describeArc(60, 60, 52, startAngle, endAngle),
+      midAngle,
+      percent: (item.workUnits / total) * 100,
     };
   });
 }
@@ -474,8 +498,17 @@ export default function ReportsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectWorkUnits, setProjectWorkUnits] = useState<WorkUnitSummary[]>([]);
   const [employeeWorkUnits, setEmployeeWorkUnits] = useState<WorkUnitSummary[]>([]);
+  const [workTypeWorkUnits, setWorkTypeWorkUnits] = useState<WorkUnitSummary[]>([]);
+  const [tagWorkUnits, setTagWorkUnits] = useState<WorkUnitSummary[]>([]);
   const [isProjectUnitsLoading, setIsProjectUnitsLoading] = useState(false);
   const [isEmployeeUnitsLoading, setIsEmployeeUnitsLoading] = useState(false);
+  const [isWorkTypeUnitsLoading, setIsWorkTypeUnitsLoading] = useState(false);
+  const [isTagUnitsLoading, setIsTagUnitsLoading] = useState(false);
+  const [pieHover, setPieHover] = useState<{
+    chart: string;
+    slice: { id: string; name: string; workUnits: number; color: string; percent: number };
+  } | null>(null);
+  const pieTooltipRef = useRef<HTMLDivElement>(null);
   const [summaryList, setSummaryList] = useState<SummaryDaily[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -521,6 +554,8 @@ export default function ReportsPage() {
   useEffect(() => {
     loadProjectWorkUnits();
     loadEmployeeWorkUnits();
+    loadWorkTypeWorkUnits();
+    loadTagWorkUnits();
   }, [
     selectedMonth,
     selectedEmployeeId,
@@ -636,6 +671,52 @@ export default function ReportsPage() {
       setEmployeeWorkUnits([]);
     } finally {
       setIsEmployeeUnitsLoading(false);
+    }
+  }
+
+  async function loadWorkTypeWorkUnits() {
+    try {
+      setIsWorkTypeUnitsLoading(true);
+      const query = buildQuery({
+        month: selectedMonth,
+        employee_id: selectedEmployeeId || undefined,
+        employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
+      });
+      const payload = await apiJson(`/api/time-entries/summary/worktype-units${query}`);
+      const list = extractList<WorkUnitSummaryItem>(payload)
+        .map(normalizeWorkTypeWorkUnits)
+        .filter((item): item is WorkUnitSummary => Boolean(item));
+      setWorkTypeWorkUnits(list);
+    } catch (error) {
+      console.error(error);
+      setWorkTypeWorkUnits([]);
+    } finally {
+      setIsWorkTypeUnitsLoading(false);
+    }
+  }
+
+  async function loadTagWorkUnits() {
+    try {
+      setIsTagUnitsLoading(true);
+      const query = buildQuery({
+        month: selectedMonth,
+        employee_id: selectedEmployeeId || undefined,
+        employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
+      });
+      const payload = await apiJson(`/api/time-entries/summary/tag-units${query}`);
+      const list = extractList<WorkUnitSummaryItem>(payload)
+        .map(normalizeTagWorkUnits)
+        .filter((item): item is WorkUnitSummary => Boolean(item));
+      setTagWorkUnits(list);
+    } catch (error) {
+      console.error(error);
+      setTagWorkUnits([]);
+    } finally {
+      setIsTagUnitsLoading(false);
     }
   }
 
@@ -805,6 +886,14 @@ export default function ReportsPage() {
     () => buildPieSlices(employeeWorkUnits),
     [employeeWorkUnits],
   );
+  const workTypePieSlices = useMemo(
+    () => buildPieSlices(workTypeWorkUnits),
+    [workTypeWorkUnits],
+  );
+  const tagPieSlices = useMemo(
+    () => buildPieSlices(tagWorkUnits),
+    [tagWorkUnits],
+  );
   const projectTotalWorkUnits = useMemo(
     () => projectWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
     [projectWorkUnits],
@@ -812,6 +901,14 @@ export default function ReportsPage() {
   const employeeTotalWorkUnits = useMemo(
     () => employeeWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
     [employeeWorkUnits],
+  );
+  const workTypeTotalWorkUnits = useMemo(
+    () => workTypeWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
+    [workTypeWorkUnits],
+  );
+  const tagTotalWorkUnits = useMemo(
+    () => tagWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
+    [tagWorkUnits],
   );
 
   const calendarCells = Array.from({ length: totalCells }, (_, index) => {
@@ -888,7 +985,7 @@ export default function ReportsPage() {
   return (
     <section className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">工时总览</h1>
+        <h1 className="text-2xl font-semibold">月度总览</h1>
         <p className="text-sm text-[color:var(--muted-foreground)]">
           一页掌握当月工时结构与出勤趋势，支持按员工与类型筛选。
           <button
@@ -1131,136 +1228,348 @@ export default function ReportsPage() {
                 <span key={`day-${label}`}>{label}</span>
               ))}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-[color:var(--muted-foreground)]">
-              <span>最大人数 {maxHeadcount}人</span>
-              <span>最大小时 {formatHours(maxHours)}h</span>
-            </div>
           </div>
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">项目工数</p>
-            <span className="text-xs text-[color:var(--muted-foreground)]">
-              总工数 {formatWorkUnits(projectTotalWorkUnits)}工
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">项目</p>
+            <span className="rounded-full bg-[color:var(--surface-muted)] px-2 py-0.5 text-[10px] text-[color:var(--muted-foreground)]">
+              {projectWorkUnits.length} 个项目
             </span>
           </div>
           {isProjectUnitsLoading ? (
-            <div className="mt-4 flex min-h-[180px] items-center justify-center text-xs text-[color:var(--muted-foreground)]">
+            <div className="mt-4 flex items-center justify-center py-8 text-xs text-[color:var(--muted-foreground)]">
               <div className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
                 <span>加载中</span>
               </div>
             </div>
           ) : projectPieSlices.length === 0 ? (
-            <div className="mt-4 min-h-[180px] py-6 text-center text-xs text-[color:var(--muted-foreground)]">
+            <div className="mt-4 py-8 text-center text-xs text-[color:var(--muted-foreground)]">
               暂无数据
             </div>
           ) : (
-            <div className="mt-4 flex flex-wrap items-center gap-4">
-              <svg
-                viewBox="0 0 120 120"
-                className="h-36 w-36 text-foreground"
-                role="img"
-                aria-label="项目工数饼图"
-              >
-                {projectPieSlices.map((slice) => (
-                  <path key={slice.id} d={slice.path} fill={slice.color} />
-                ))}
-              </svg>
-              <div className="flex-1 space-y-2 text-xs">
-                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
-                  {projectPieSlices.map((slice) => {
-                    const percent =
-                      projectTotalWorkUnits === 0
-                        ? 0
-                        : (slice.workUnits / projectTotalWorkUnits) * 100;
+            <div
+              className="mt-4 flex items-center justify-center"
+              onMouseMove={(e) => {
+                if (pieTooltipRef.current) {
+                  pieTooltipRef.current.style.left = `${e.clientX + 12}px`;
+                  pieTooltipRef.current.style.top = `${e.clientY + 12}px`;
+                }
+              }}
+            >
+              <svg viewBox="0 0 240 140" className="h-44 w-full max-w-[280px]" role="img" aria-label="项目工数饼图">
+                <g transform="translate(70, 10)">
+                  {projectPieSlices.map((slice, index) => {
+                    const isHovered = pieHover?.chart === "project" && pieHover?.slice.id === slice.id;
                     return (
-                      <div key={`legend-${slice.id}`} className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: slice.color }}
-                          />
-                          <span className="truncate text-foreground">{slice.name}</span>
-                        </div>
-                        <span className="shrink-0 text-[color:var(--muted-foreground)]">
-                          {formatWorkUnits(slice.workUnits)}工 · {percent.toFixed(0)}%
-                        </span>
-                      </div>
+                      <path
+                        key={slice.id}
+                        d={slice.path}
+                        fill={slice.color}
+                        className="cursor-pointer transition-transform duration-150"
+                        style={{
+                          transform: isHovered ? "scale(1.06)" : "scale(1)",
+                          transformOrigin: "60px 60px",
+                        }}
+                        onMouseEnter={() => {
+                          setPieHover({
+                            chart: "project",
+                            slice: { id: slice.id, name: slice.name, workUnits: slice.workUnits, color: slice.color, percent: slice.percent },
+                          });
+                        }}
+                        onMouseLeave={() => setPieHover(null)}
+                      />
                     );
                   })}
-                </div>
-              </div>
+                  {projectPieSlices.slice(0, 10).map((slice) => {
+                    const rad = ((slice.midAngle - 90) * Math.PI) / 180;
+                    const innerX = 60 + 54 * Math.cos(rad);
+                    const innerY = 60 + 54 * Math.sin(rad);
+                    const outerX = 60 + 68 * Math.cos(rad);
+                    const outerY = 60 + 68 * Math.sin(rad);
+                    const isRight = outerX > 60;
+                    const labelX = isRight ? outerX + 4 : outerX - 4;
+                    return (
+                      <g key={`label-${slice.id}`}>
+                        <line x1={innerX} y1={innerY} x2={outerX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <line x1={outerX} y1={outerY} x2={labelX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY - 2} fontSize="9" fill="currentColor" textAnchor={isRight ? "start" : "end"}>
+                          {slice.name.length > 5 ? slice.name.slice(0, 5) + "…" : slice.name}
+                        </text>
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY + 8} fontSize="8" fill="currentColor" opacity="0.6" textAnchor={isRight ? "start" : "end"}>
+                          {slice.percent.toFixed(0)}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
             </div>
           )}
         </div>
 
         <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">员工工数</p>
-            <span className="text-xs text-[color:var(--muted-foreground)]">
-              总工数 {formatWorkUnits(employeeTotalWorkUnits)}工
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">员工</p>
+            <span className="rounded-full bg-[color:var(--surface-muted)] px-2 py-0.5 text-[10px] text-[color:var(--muted-foreground)]">
+              {employeeWorkUnits.length} 人
             </span>
           </div>
           {isEmployeeUnitsLoading ? (
-            <div className="mt-4 flex min-h-[180px] items-center justify-center text-xs text-[color:var(--muted-foreground)]">
+            <div className="mt-4 flex items-center justify-center py-8 text-xs text-[color:var(--muted-foreground)]">
               <div className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
                 <span>加载中</span>
               </div>
             </div>
           ) : employeePieSlices.length === 0 ? (
-            <div className="mt-4 min-h-[180px] py-6 text-center text-xs text-[color:var(--muted-foreground)]">
+            <div className="mt-4 py-8 text-center text-xs text-[color:var(--muted-foreground)]">
               暂无数据
             </div>
           ) : (
-            <div className="mt-4 flex flex-wrap items-center gap-4">
-              <svg
-                viewBox="0 0 120 120"
-                className="h-36 w-36 text-foreground"
-                role="img"
-                aria-label="员工工数饼图"
-              >
-                {employeePieSlices.map((slice) => (
-                  <path key={slice.id} d={slice.path} fill={slice.color} />
-                ))}
-              </svg>
-              <div className="flex-1 space-y-2 text-xs">
-                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+            <div
+              className="mt-4 flex items-center justify-center"
+              onMouseMove={(e) => {
+                if (pieTooltipRef.current) {
+                  pieTooltipRef.current.style.left = `${e.clientX + 12}px`;
+                  pieTooltipRef.current.style.top = `${e.clientY + 12}px`;
+                }
+              }}
+            >
+              <svg viewBox="0 0 240 140" className="h-44 w-full max-w-[280px]" role="img" aria-label="员工工数饼图">
+                <g transform="translate(70, 10)">
                   {employeePieSlices.map((slice) => {
-                    const percent =
-                      employeeTotalWorkUnits === 0
-                        ? 0
-                        : (slice.workUnits / employeeTotalWorkUnits) * 100;
+                    const isHovered = pieHover?.chart === "employee" && pieHover?.slice.id === slice.id;
                     return (
-                      <div key={`legend-${slice.id}`} className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: slice.color }}
-                          />
-                          <span className="truncate text-foreground">{slice.name}</span>
-                        </div>
-                        <span className="shrink-0 text-[color:var(--muted-foreground)]">
-                          {formatWorkUnits(slice.workUnits)}工 · {percent.toFixed(0)}%
-                        </span>
-                      </div>
+                      <path
+                        key={slice.id}
+                        d={slice.path}
+                        fill={slice.color}
+                        className="cursor-pointer transition-transform duration-150"
+                        style={{
+                          transform: isHovered ? "scale(1.06)" : "scale(1)",
+                          transformOrigin: "60px 60px",
+                        }}
+                        onMouseEnter={() => {
+                          setPieHover({
+                            chart: "employee",
+                            slice: { id: slice.id, name: slice.name, workUnits: slice.workUnits, color: slice.color, percent: slice.percent },
+                          });
+                        }}
+                        onMouseLeave={() => setPieHover(null)}
+                      />
                     );
                   })}
-                </div>
+                  {employeePieSlices.slice(0, 10).map((slice) => {
+                    const rad = ((slice.midAngle - 90) * Math.PI) / 180;
+                    const innerX = 60 + 54 * Math.cos(rad);
+                    const innerY = 60 + 54 * Math.sin(rad);
+                    const outerX = 60 + 68 * Math.cos(rad);
+                    const outerY = 60 + 68 * Math.sin(rad);
+                    const isRight = outerX > 60;
+                    const labelX = isRight ? outerX + 4 : outerX - 4;
+                    return (
+                      <g key={`label-${slice.id}`}>
+                        <line x1={innerX} y1={innerY} x2={outerX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <line x1={outerX} y1={outerY} x2={labelX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY - 2} fontSize="9" fill="currentColor" textAnchor={isRight ? "start" : "end"}>
+                          {slice.name.length > 5 ? slice.name.slice(0, 5) + "…" : slice.name}
+                        </text>
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY + 8} fontSize="8" fill="currentColor" opacity="0.6" textAnchor={isRight ? "start" : "end"}>
+                          {slice.percent.toFixed(0)}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">工种</p>
+            <span className="rounded-full bg-[color:var(--surface-muted)] px-2 py-0.5 text-[10px] text-[color:var(--muted-foreground)]">
+              {workTypeWorkUnits.length} 个工种
+            </span>
+          </div>
+          {isWorkTypeUnitsLoading ? (
+            <div className="mt-4 flex items-center justify-center py-8 text-xs text-[color:var(--muted-foreground)]">
+              <div className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                <span>加载中</span>
               </div>
+            </div>
+          ) : workTypePieSlices.length === 0 ? (
+            <div className="mt-4 py-8 text-center text-xs text-[color:var(--muted-foreground)]">
+              暂无数据
+            </div>
+          ) : (
+            <div
+              className="mt-4 flex items-center justify-center"
+              onMouseMove={(e) => {
+                if (pieTooltipRef.current) {
+                  pieTooltipRef.current.style.left = `${e.clientX + 12}px`;
+                  pieTooltipRef.current.style.top = `${e.clientY + 12}px`;
+                }
+              }}
+            >
+              <svg viewBox="0 0 240 140" className="h-44 w-full max-w-[280px]" role="img" aria-label="工种工数饼图">
+                <g transform="translate(70, 10)">
+                  {workTypePieSlices.map((slice) => {
+                    const isHovered = pieHover?.chart === "workType" && pieHover?.slice.id === slice.id;
+                    return (
+                      <path
+                        key={slice.id}
+                        d={slice.path}
+                        fill={slice.color}
+                        className="cursor-pointer transition-transform duration-150"
+                        style={{
+                          transform: isHovered ? "scale(1.06)" : "scale(1)",
+                          transformOrigin: "60px 60px",
+                        }}
+                        onMouseEnter={() => {
+                          setPieHover({
+                            chart: "workType",
+                            slice: { id: slice.id, name: slice.name, workUnits: slice.workUnits, color: slice.color, percent: slice.percent },
+                          });
+                        }}
+                        onMouseLeave={() => setPieHover(null)}
+                      />
+                    );
+                  })}
+                  {workTypePieSlices.slice(0, 10).map((slice) => {
+                    const rad = ((slice.midAngle - 90) * Math.PI) / 180;
+                    const innerX = 60 + 54 * Math.cos(rad);
+                    const innerY = 60 + 54 * Math.sin(rad);
+                    const outerX = 60 + 68 * Math.cos(rad);
+                    const outerY = 60 + 68 * Math.sin(rad);
+                    const isRight = outerX > 60;
+                    const labelX = isRight ? outerX + 4 : outerX - 4;
+                    return (
+                      <g key={`label-${slice.id}`}>
+                        <line x1={innerX} y1={innerY} x2={outerX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <line x1={outerX} y1={outerY} x2={labelX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY - 2} fontSize="9" fill="currentColor" textAnchor={isRight ? "start" : "end"}>
+                          {slice.name.length > 5 ? slice.name.slice(0, 5) + "…" : slice.name}
+                        </text>
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY + 8} fontSize="8" fill="currentColor" opacity="0.6" textAnchor={isRight ? "start" : "end"}>
+                          {slice.percent.toFixed(0)}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">标签</p>
+            <span className="rounded-full bg-[color:var(--surface-muted)] px-2 py-0.5 text-[10px] text-[color:var(--muted-foreground)]">
+              {tagWorkUnits.length} 个标签
+            </span>
+          </div>
+          {isTagUnitsLoading ? (
+            <div className="mt-4 flex items-center justify-center py-8 text-xs text-[color:var(--muted-foreground)]">
+              <div className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                <span>加载中</span>
+              </div>
+            </div>
+          ) : tagPieSlices.length === 0 ? (
+            <div className="mt-4 py-8 text-center text-xs text-[color:var(--muted-foreground)]">
+              暂无数据
+            </div>
+          ) : (
+            <div
+              className="mt-4 flex items-center justify-center"
+              onMouseMove={(e) => {
+                if (pieTooltipRef.current) {
+                  pieTooltipRef.current.style.left = `${e.clientX + 12}px`;
+                  pieTooltipRef.current.style.top = `${e.clientY + 12}px`;
+                }
+              }}
+            >
+              <svg viewBox="0 0 240 140" className="h-44 w-full max-w-[280px]" role="img" aria-label="标签工数饼图">
+                <g transform="translate(70, 10)">
+                  {tagPieSlices.map((slice) => {
+                    const isHovered = pieHover?.chart === "tag" && pieHover?.slice.id === slice.id;
+                    return (
+                      <path
+                        key={slice.id}
+                        d={slice.path}
+                        fill={slice.color}
+                        className="cursor-pointer transition-transform duration-150"
+                        style={{
+                          transform: isHovered ? "scale(1.06)" : "scale(1)",
+                          transformOrigin: "60px 60px",
+                        }}
+                        onMouseEnter={() => {
+                          setPieHover({
+                            chart: "tag",
+                            slice: { id: slice.id, name: slice.name, workUnits: slice.workUnits, color: slice.color, percent: slice.percent },
+                          });
+                        }}
+                        onMouseLeave={() => setPieHover(null)}
+                      />
+                    );
+                  })}
+                  {tagPieSlices.slice(0, 10).map((slice) => {
+                    const rad = ((slice.midAngle - 90) * Math.PI) / 180;
+                    const innerX = 60 + 54 * Math.cos(rad);
+                    const innerY = 60 + 54 * Math.sin(rad);
+                    const outerX = 60 + 68 * Math.cos(rad);
+                    const outerY = 60 + 68 * Math.sin(rad);
+                    const isRight = outerX > 60;
+                    const labelX = isRight ? outerX + 4 : outerX - 4;
+                    return (
+                      <g key={`label-${slice.id}`}>
+                        <line x1={innerX} y1={innerY} x2={outerX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <line x1={outerX} y1={outerY} x2={labelX} y2={outerY} stroke={slice.color} strokeWidth="1" />
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY - 2} fontSize="9" fill="currentColor" textAnchor={isRight ? "start" : "end"}>
+                          {slice.name.length > 5 ? slice.name.slice(0, 5) + "…" : slice.name}
+                        </text>
+                        <text x={labelX + (isRight ? 2 : -2)} y={outerY + 8} fontSize="8" fill="currentColor" opacity="0.6" textAnchor={isRight ? "start" : "end"}>
+                          {slice.percent.toFixed(0)}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
             </div>
           )}
         </div>
       </div>
 
+      {pieHover ? (
+        <div
+          ref={pieTooltipRef}
+          className="pointer-events-none fixed z-[100] rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs shadow-lg"
+          style={{ left: 0, top: 0 }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: pieHover.slice.color }} />
+            <span className="font-medium text-foreground">{pieHover.slice.name}</span>
+          </div>
+          <div className="mt-1 text-[color:var(--muted-foreground)]">
+            工数: {formatWorkUnits(pieHover.slice.workUnits)} 工 · {pieHover.slice.percent.toFixed(1)}%
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-medium">当月日历</p>
+            <p className="text-sm font-medium">日历看板</p>
             <p className="text-xs text-[color:var(--muted-foreground)]">
               每天展示项目与工数，超过两个项目可通过 ... 查看更多。
             </p>
