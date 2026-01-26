@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 
@@ -31,6 +31,8 @@ const projectStatuses: { value: ProjectStatus; label: string }[] = [
   { value: "pending", label: "待开始" },
   { value: "completed", label: "已完成" },
 ];
+
+const DEFAULT_PROJECT_PAGE_SIZE = 15;
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {
   const search = new URLSearchParams();
@@ -66,6 +68,21 @@ function extractList<T>(payload: unknown): T[] {
     }
   }
   return [];
+}
+
+function extractPagedMeta(payload: unknown) {
+  const data = (payload as { data?: unknown }).data ?? payload;
+  if (data && typeof data === "object") {
+    const total = Number((data as { total?: number }).total ?? 0);
+    const page = Number((data as { page?: number }).page ?? 1);
+    const pageSize = Number(
+      (data as { page_size?: number; pageSize?: number }).page_size ??
+        (data as { page_size?: number; pageSize?: number }).pageSize ??
+        DEFAULT_PROJECT_PAGE_SIZE,
+    );
+    return { total, page, pageSize };
+  }
+  return { total: 0, page: 1, pageSize: DEFAULT_PROJECT_PAGE_SIZE };
 }
 
 function normalizeProject(item: Record<string, unknown>): Project {
@@ -251,6 +268,10 @@ export default function ProjectsPage() {
   const [today] = useState(() => new Date());
   const [projects, setProjects] = useState<Project[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PROJECT_PAGE_SIZE);
+  const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(0);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -263,12 +284,13 @@ export default function ProjectsPage() {
     remark: "",
   });
   const { notify, confirm } = useNotice();
-  const displayProjects = searchText.trim()
-    ? projects.filter((project) =>
-        project.name.includes(searchText.trim()) ||
-        (project.code && project.code.includes(searchText.trim()))
-      )
-    : projects;
+  const displayProjects = projects;
+  const filtersKey = useMemo(
+    () => `${searchText.trim()}|${pageSize}`,
+    [searchText, pageSize],
+  );
+  const filtersRef = useRef(filtersKey);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const baseGanttRange = getCurrentMonthRange(today);
   const baseGanttDays = Math.max(1, diffDays(baseGanttRange.start, baseGanttRange.end) + 1);
   const maxZoomInSteps = Math.max(
@@ -285,30 +307,53 @@ export default function ProjectsPage() {
   const canZoomIn = ganttZoomSteps < maxZoomInSteps;
   const canZoomOut = ganttZoomSteps > -MAX_GANTT_ZOOM_OUT;
 
-  async function loadProjects(keyword: string) {
+  async function loadProjects(overrides?: {
+    keyword?: string;
+    page?: number;
+  }) {
     try {
+      setIsLoading(true);
+      const keyword = overrides?.keyword ?? searchText;
+      const page = overrides?.page ?? currentPage;
       const query = buildQuery({
         keyword: keyword.trim(),
-        page: 1,
-        page_size: 200,
+        page,
+        page_size: pageSize,
         sort: "name_asc",
       });
       const payload = await apiJson(`/api/projects${query}`);
+      const meta = extractPagedMeta(payload);
       const list = extractList<Record<string, unknown>>(payload).map(
         normalizeProject,
       );
       setProjects(list);
+      setTotal(meta.total);
+      const nextTotalPages = Math.max(1, Math.ceil(meta.total / pageSize));
+      if (meta.total > 0 && currentPage > nextTotalPages) {
+        setCurrentPage(nextTotalPages);
+      }
     } catch (error) {
       console.error(error);
+      setProjects([]);
+      setTotal(0);
+    } finally {
+      setIsLoading(false);
     }
   }
 
   useEffect(() => {
+    if (filtersRef.current !== filtersKey) {
+      filtersRef.current = filtersKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
+    }
     const timer = window.setTimeout(() => {
-      loadProjects(searchText);
+      loadProjects();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchText]);
+  }, [filtersKey, currentPage]);
 
   function openCreateModal() {
     setEditingProjectId(null);
@@ -343,7 +388,7 @@ export default function ProjectsPage() {
     }
     try {
       await apiJson(`/api/projects/${projectId}`, { method: "DELETE" });
-      await loadProjects(searchText);
+      await loadProjects();
       notify("项目已删除。", "success");
     } catch (error) {
       const message =
@@ -389,7 +434,7 @@ export default function ProjectsPage() {
         notify("项目已新增。", "success");
       }
       setIsModalOpen(false);
-      await loadProjects(searchText);
+      await loadProjects();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "保存失败，请稍后再试。";
@@ -493,7 +538,14 @@ export default function ProjectsPage() {
                   })}
                 </div>
               </div>
-              {displayProjects.length === 0 ? (
+              {isLoading ? (
+                <div className="py-4 text-center text-xs text-[color:var(--muted-foreground)]">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                    <span>加载中</span>
+                  </div>
+                </div>
+              ) : displayProjects.length === 0 ? (
                 <div className="py-4 text-center text-xs text-[color:var(--muted-foreground)]">
                   暂无项目
                 </div>
@@ -597,78 +649,136 @@ export default function ProjectsPage() {
             </div>
           </div>
         </div>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="text-[color:var(--muted-foreground)]">
-              <tr>
-                <th className="pb-2 font-medium">项目名称</th>
-                <th className="pb-2 font-medium">项目代码</th>
-                <th className="pb-2 font-medium">项目状态</th>
-                <th className="pb-2 font-medium">计划开始</th>
-                <th className="pb-2 font-medium">计划结束</th>
-                <th className="pb-2 font-medium">备注</th>
-                <th className="pb-2 font-medium">创建时间</th>
-                <th className="pb-2 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayProjects.length === 0 ? (
+        <div className="mt-4 flex min-h-[360px] flex-col">
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[color:var(--muted-foreground)]">
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="py-6 text-center text-[color:var(--muted-foreground)]"
-                  >
-                    暂无项目
-                  </td>
+                  <th className="pb-2 font-medium">项目名称</th>
+                  <th className="pb-2 font-medium">项目代码</th>
+                  <th className="pb-2 font-medium">项目状态</th>
+                  <th className="pb-2 font-medium">计划开始</th>
+                  <th className="pb-2 font-medium">计划结束</th>
+                  <th className="pb-2 font-medium">备注</th>
+                  <th className="pb-2 font-medium">创建时间</th>
+                  <th className="pb-2 font-medium">操作</th>
                 </tr>
-              ) : (
-                displayProjects.map((project) => (
-                  <tr
-                    key={project.id}
-                    className="border-t border-[color:var(--border)]"
-                  >
-                    <td className="py-3 text-foreground">{project.name}</td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {project.code || "-"}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {getStatusLabel(project.status)}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {formatDate(project.planned_start_date)}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {formatDate(project.planned_end_date)}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {project.remark || "-"}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {formatDateTime(project.createdAt)}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(project)}
-                          className="text-xs text-foreground hover:underline"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(project.id)}
-                          className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
-                        >
-                          删除
-                        </button>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="py-6 text-center text-[color:var(--muted-foreground)]"
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                        <span>加载中</span>
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : displayProjects.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="py-6 text-center text-[color:var(--muted-foreground)]"
+                    >
+                      暂无项目
+                    </td>
+                  </tr>
+                ) : (
+                  displayProjects.map((project) => (
+                    <tr
+                      key={project.id}
+                      className="border-t border-[color:var(--border)]"
+                    >
+                      <td className="py-3 text-foreground">{project.name}</td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {project.code || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {getStatusLabel(project.status)}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {formatDate(project.planned_start_date)}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {formatDate(project.planned_end_date)}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {project.remark || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {formatDateTime(project.createdAt)}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(project)}
+                            className="text-xs text-foreground hover:underline"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(project.id)}
+                            className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 text-xs text-[color:var(--muted-foreground)]">
+            <span>共 {total} 条</span>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2">
+                每页
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    const nextSize = Number(event.target.value);
+                    setPageSize(nextSize);
+                    setCurrentPage(1);
+                  }}
+                  className="h-7 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+                >
+                  {[10, 15, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage <= 1 || isLoading}
+                className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+              >
+                上一页
+              </button>
+              <span>
+                {total === 0 ? 0 : currentPage} / {total === 0 ? 0 : totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                }
+                disabled={currentPage >= totalPages || isLoading}
+                className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

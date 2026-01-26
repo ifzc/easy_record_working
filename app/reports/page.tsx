@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Info } from "lucide-react";
@@ -11,6 +11,7 @@ type Employee = {
   id: string;
   name: string;
   type: EmployeeType;
+  workType?: string;
 };
 
 type SummaryItem = {
@@ -42,6 +43,7 @@ type TimeEntry = {
   employeeName: string;
   employeeType: string;
   workType?: string;
+  projectName?: string;
   normalHours: number;
   overtimeHours: number;
   totalHours: number;
@@ -56,11 +58,40 @@ type Project = {
   plannedEndDate?: string;
 };
 
+type WorkUnitSummaryItem = {
+  project_id?: string;
+  projectId?: string;
+  project_name?: string;
+  projectName?: string;
+  employee_id?: string;
+  employeeId?: string;
+  employee_name?: string;
+  employeeName?: string;
+  work_units?: number;
+  workUnits?: number;
+};
+
+type WorkUnitSummary = {
+  id: string;
+  name: string;
+  workUnits: number;
+};
+
 const CHART_WIDTH = 140;
 const CHART_HEIGHT = 72;
 const CHART_PADDING = 4;
 const CHART_LABEL_SPACE = 10;
 const CHART_PLOT_HEIGHT = CHART_HEIGHT - CHART_LABEL_SPACE;
+const PIE_COLORS = [
+  "#2563eb",
+  "#f97316",
+  "#16a34a",
+  "#a855f7",
+  "#eab308",
+  "#ef4444",
+  "#0ea5e9",
+  "#14b8a6",
+];
 
 const employeeTypes: EmployeeType[] = ["正式工", "临时工"];
 
@@ -133,10 +164,12 @@ function normalizeEmployee(item: Record<string, unknown>): Employee | null {
   if (!id || !name) {
     return null;
   }
+  const workType = item.work_type ?? item.workType ?? "";
   return {
     id,
     name,
     type: (item.type as EmployeeType) ?? "正式工",
+    workType: workType ? String(workType) : "",
   };
 }
 
@@ -200,17 +233,89 @@ function normalizeTimeEntry(item: Record<string, unknown>): TimeEntry | null {
     workUnitsRaw === undefined || workUnitsRaw === null
       ? normalHours / 8 + overtimeHours / 6
       : Number(workUnitsRaw);
+  const projectName = item.project_name ?? item.projectName ?? "";
   return {
     id,
     employeeName,
     employeeType: String(item.employee_type ?? item.employeeType ?? ""),
     workType: String(item.work_type ?? item.workType ?? item.employee_work_type ?? ""),
+    projectName: projectName ? String(projectName) : undefined,
     normalHours,
     overtimeHours,
     totalHours,
     workUnits,
     remark: item.remark ? String(item.remark) : undefined,
   };
+}
+
+function normalizeProjectWorkUnits(item: WorkUnitSummaryItem): WorkUnitSummary | null {
+  const projectId = item.project_id ?? item.projectId;
+  const workUnits = Number(item.work_units ?? item.workUnits ?? 0);
+  const name = String(item.project_name ?? item.projectName ?? "未关联项目");
+  return {
+    id: projectId ? String(projectId) : "unassigned",
+    name,
+    workUnits,
+  };
+}
+
+function normalizeEmployeeWorkUnits(item: WorkUnitSummaryItem): WorkUnitSummary | null {
+  const employeeId = item.employee_id ?? item.employeeId;
+  const employeeName = String(item.employee_name ?? item.employeeName ?? "");
+  if (!employeeId || !employeeName) {
+    return null;
+  }
+  return {
+    id: String(employeeId),
+    name: employeeName,
+    workUnits: Number(item.work_units ?? item.workUnits ?? 0),
+  };
+}
+
+function polarToCartesian(cx: number, cy: number, radius: number, angle: number) {
+  const rad = ((angle - 90) * Math.PI) / 180;
+  return {
+    x: cx + radius * Math.cos(rad),
+    y: cy + radius * Math.sin(rad),
+  };
+}
+
+function describeArc(
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+) {
+  const safeEndAngle = Math.min(endAngle, startAngle + 359.9);
+  const start = polarToCartesian(cx, cy, radius, safeEndAngle);
+  const end = polarToCartesian(cx, cy, radius, startAngle);
+  const largeArcFlag = safeEndAngle - startAngle <= 180 ? "0" : "1";
+  return [
+    `M ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`,
+    `L ${cx} ${cy} Z`,
+  ].join(" ");
+}
+
+function buildPieSlices(items: WorkUnitSummary[]) {
+  const total = items.reduce((sum, item) => sum + item.workUnits, 0);
+  if (total <= 0) {
+    return [];
+  }
+  let cursor = 0;
+  return items.map((item, index) => {
+    const startAngle = (cursor / total) * 360;
+    cursor += item.workUnits;
+    const endAngle = (cursor / total) * 360;
+    return {
+      id: item.id,
+      name: item.name,
+      workUnits: item.workUnits,
+      color: PIE_COLORS[index % PIE_COLORS.length],
+      path: describeArc(60, 60, 52, startAngle, endAngle),
+    };
+  });
 }
 
 function getMonthOptions(baseDate: Date, count = 24) {
@@ -362,8 +467,15 @@ export default function ReportsPage() {
   const [selectedMonth, setSelectedMonth] = useState(() => toMonthKey(today));
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedEmployeeType, setSelectedEmployeeType] = useState("");
+  const [selectedWorkType, setSelectedWorkType] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectWorkUnits, setProjectWorkUnits] = useState<WorkUnitSummary[]>([]);
+  const [employeeWorkUnits, setEmployeeWorkUnits] = useState<WorkUnitSummary[]>([]);
+  const [isProjectUnitsLoading, setIsProjectUnitsLoading] = useState(false);
+  const [isEmployeeUnitsLoading, setIsEmployeeUnitsLoading] = useState(false);
   const [summaryList, setSummaryList] = useState<SummaryDaily[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -379,6 +491,18 @@ export default function ReportsPage() {
   } | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const { notify } = useNotice();
+  const workTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach((employee) => {
+      if (employee.workType) {
+        set.add(employee.workType);
+      }
+    });
+    if (selectedWorkType) {
+      set.add(selectedWorkType);
+    }
+    return Array.from(set);
+  }, [employees, selectedWorkType]);
 
   useEffect(() => {
     loadEmployees();
@@ -386,7 +510,24 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadSummary();
-  }, [selectedMonth, selectedEmployeeId, selectedEmployeeType]);
+  }, [
+    selectedMonth,
+    selectedEmployeeId,
+    selectedEmployeeType,
+    selectedWorkType,
+    selectedProjectId,
+  ]);
+
+  useEffect(() => {
+    loadProjectWorkUnits();
+    loadEmployeeWorkUnits();
+  }, [
+    selectedMonth,
+    selectedEmployeeId,
+    selectedEmployeeType,
+    selectedWorkType,
+    selectedProjectId,
+  ]);
 
   useEffect(() => {
     loadProjects();
@@ -433,6 +574,8 @@ export default function ReportsPage() {
         month: selectedMonth,
         employee_id: selectedEmployeeId || undefined,
         employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
       });
       const payload = await apiJson(`/api/time-entries/summary${query}`);
       const list = extractList<SummaryItem>(payload)
@@ -450,11 +593,61 @@ export default function ReportsPage() {
     }
   }
 
+  async function loadProjectWorkUnits() {
+    try {
+      setIsProjectUnitsLoading(true);
+      const query = buildQuery({
+        month: selectedMonth,
+        employee_id: selectedEmployeeId || undefined,
+        employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
+      });
+      const payload = await apiJson(`/api/time-entries/summary/project-units${query}`);
+      const list = extractList<WorkUnitSummaryItem>(payload)
+        .map(normalizeProjectWorkUnits)
+        .filter((item): item is WorkUnitSummary => Boolean(item));
+      setProjectWorkUnits(list);
+    } catch (error) {
+      console.error(error);
+      setProjectWorkUnits([]);
+    } finally {
+      setIsProjectUnitsLoading(false);
+    }
+  }
+
+  async function loadEmployeeWorkUnits() {
+    try {
+      setIsEmployeeUnitsLoading(true);
+      const query = buildQuery({
+        month: selectedMonth,
+        employee_id: selectedEmployeeId || undefined,
+        employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
+      });
+      const payload = await apiJson(`/api/time-entries/summary/employee-units${query}`);
+      const list = extractList<WorkUnitSummaryItem>(payload)
+        .map(normalizeEmployeeWorkUnits)
+        .filter((item): item is WorkUnitSummary => Boolean(item));
+      setEmployeeWorkUnits(list);
+    } catch (error) {
+      console.error(error);
+      setEmployeeWorkUnits([]);
+    } finally {
+      setIsEmployeeUnitsLoading(false);
+    }
+  }
+
   async function openDayDetail(date: string) {
     setDayDetail({ date, entries: [], loading: true });
     try {
       const query = buildQuery({
         date,
+        employee_id: selectedEmployeeId || undefined,
+        employee_type: selectedEmployeeType || undefined,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
         page: 1,
         page_size: 200,
         sort: "hours_desc",
@@ -487,10 +680,13 @@ export default function ReportsPage() {
     return map;
   }, [summaryList]);
 
-  const projectMap = useMemo(
-    () => buildProjectDateMap(projects, year, month),
-    [projects, year, month],
-  );
+  const projectMap = useMemo(() => {
+    const filtered =
+      selectedProjectId === ""
+        ? projects
+        : projects.filter((project) => project.id === selectedProjectId);
+    return buildProjectDateMap(filtered, year, month);
+  }, [projects, selectedProjectId, year, month]);
 
   const dailySummaries = useMemo(() => {
     const list = [] as SummaryDaily[];
@@ -601,6 +797,22 @@ export default function ReportsPage() {
       totalWorkUnits,
     };
   }, [dayDetail]);
+  const projectPieSlices = useMemo(
+    () => buildPieSlices(projectWorkUnits),
+    [projectWorkUnits],
+  );
+  const employeePieSlices = useMemo(
+    () => buildPieSlices(employeeWorkUnits),
+    [employeeWorkUnits],
+  );
+  const projectTotalWorkUnits = useMemo(
+    () => projectWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
+    [projectWorkUnits],
+  );
+  const employeeTotalWorkUnits = useMemo(
+    () => employeeWorkUnits.reduce((sum, item) => sum + item.workUnits, 0),
+    [employeeWorkUnits],
+  );
 
   const calendarCells = Array.from({ length: totalCells }, (_, index) => {
     const day = index - startIndex + 1;
@@ -679,64 +891,110 @@ export default function ReportsPage() {
         <h1 className="text-2xl font-semibold">工时总览</h1>
         <p className="text-sm text-[color:var(--muted-foreground)]">
           一页掌握当月工时结构与出勤趋势，支持按员工与类型筛选。
+          <button
+            type="button"
+            onClick={() => setShowFilters((prev) => !prev)}
+            className="ml-2 inline-flex items-center gap-1 rounded-md border border-[color:var(--border)] px-2 py-0.5 text-[11px] text-foreground hover:bg-[color:var(--surface-muted)]"
+          >
+            高级筛选
+          </button>
         </p>
       </div>
 
-      <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-            月份
-            <select
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value)}
-              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
-            >
-              {monthOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-            员工
-            <select
-              value={selectedEmployeeId}
-              onChange={(event) => setSelectedEmployeeId(event.target.value)}
-              className="h-8 min-w-[180px] rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
-              disabled={employees.length === 0}
-            >
-              {employees.length === 0 ? (
-                <option value="">暂无员工</option>
-              ) : (
-                <>
-                  <option value="">全部员工</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </>
-              )}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
-            员工类型
-            <select
-              value={selectedEmployeeType}
-              onChange={(event) => setSelectedEmployeeType(event.target.value)}
-              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
-            >
-              <option value="">全部类型</option>
-              {employeeTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
+      {showFilters ? (
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+              月份
+              <select
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+              员工
+              <select
+                value={selectedEmployeeId}
+                onChange={(event) => setSelectedEmployeeId(event.target.value)}
+                className="h-8 min-w-[180px] rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                disabled={employees.length === 0}
+              >
+                {employees.length === 0 ? (
+                  <option value="">暂无员工</option>
+                ) : (
+                  <>
+                    <option value="">全部员工</option>
+                    {employees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+              员工类型
+              <select
+                value={selectedEmployeeType}
+                onChange={(event) => setSelectedEmployeeType(event.target.value)}
+                className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+              >
+                <option value="">全部类型</option>
+                {employeeTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+              工种
+              <select
+                value={selectedWorkType}
+                onChange={(event) => setSelectedWorkType(event.target.value)}
+                className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+              >
+                <option value="">全部工种</option>
+                {workTypeOptions.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+              项目
+              <select
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+                className="h-8 min-w-[180px] rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                disabled={projects.length === 0}
+              >
+                {projects.length === 0 ? (
+                  <option value="">暂无项目</option>
+                ) : (
+                  <>
+                    <option value="">全部项目</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            </label>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -772,13 +1030,16 @@ export default function ReportsPage() {
         </div>
 
         {isLoading ? (
-          <div className="py-10 text-center text-xs text-[color:var(--muted-foreground)]">
-            数据加载中...
+          <div className="mt-4 flex min-h-[190px] items-center justify-center text-xs text-[color:var(--muted-foreground)]">
+            <div className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+              <span>加载中</span>
+            </div>
           </div>
         ) : (
           <div
             ref={chartRef}
-            className="relative mt-4"
+            className="relative mt-4 min-h-[190px]"
             onMouseMove={handleChartMove}
             onMouseLeave={handleChartLeave}
           >
@@ -876,6 +1137,124 @@ export default function ReportsPage() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">项目工数</p>
+            <span className="text-xs text-[color:var(--muted-foreground)]">
+              总工数 {formatWorkUnits(projectTotalWorkUnits)}工
+            </span>
+          </div>
+          {isProjectUnitsLoading ? (
+            <div className="mt-4 flex min-h-[180px] items-center justify-center text-xs text-[color:var(--muted-foreground)]">
+              <div className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                <span>加载中</span>
+              </div>
+            </div>
+          ) : projectPieSlices.length === 0 ? (
+            <div className="mt-4 min-h-[180px] py-6 text-center text-xs text-[color:var(--muted-foreground)]">
+              暂无数据
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <svg
+                viewBox="0 0 120 120"
+                className="h-36 w-36 text-foreground"
+                role="img"
+                aria-label="项目工数饼图"
+              >
+                {projectPieSlices.map((slice) => (
+                  <path key={slice.id} d={slice.path} fill={slice.color} />
+                ))}
+              </svg>
+              <div className="flex-1 space-y-2 text-xs">
+                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                  {projectPieSlices.map((slice) => {
+                    const percent =
+                      projectTotalWorkUnits === 0
+                        ? 0
+                        : (slice.workUnits / projectTotalWorkUnits) * 100;
+                    return (
+                      <div key={`legend-${slice.id}`} className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: slice.color }}
+                          />
+                          <span className="truncate text-foreground">{slice.name}</span>
+                        </div>
+                        <span className="shrink-0 text-[color:var(--muted-foreground)]">
+                          {formatWorkUnits(slice.workUnits)}工 · {percent.toFixed(0)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">员工工数</p>
+            <span className="text-xs text-[color:var(--muted-foreground)]">
+              总工数 {formatWorkUnits(employeeTotalWorkUnits)}工
+            </span>
+          </div>
+          {isEmployeeUnitsLoading ? (
+            <div className="mt-4 flex min-h-[180px] items-center justify-center text-xs text-[color:var(--muted-foreground)]">
+              <div className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                <span>加载中</span>
+              </div>
+            </div>
+          ) : employeePieSlices.length === 0 ? (
+            <div className="mt-4 min-h-[180px] py-6 text-center text-xs text-[color:var(--muted-foreground)]">
+              暂无数据
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <svg
+                viewBox="0 0 120 120"
+                className="h-36 w-36 text-foreground"
+                role="img"
+                aria-label="员工工数饼图"
+              >
+                {employeePieSlices.map((slice) => (
+                  <path key={slice.id} d={slice.path} fill={slice.color} />
+                ))}
+              </svg>
+              <div className="flex-1 space-y-2 text-xs">
+                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                  {employeePieSlices.map((slice) => {
+                    const percent =
+                      employeeTotalWorkUnits === 0
+                        ? 0
+                        : (slice.workUnits / employeeTotalWorkUnits) * 100;
+                    return (
+                      <div key={`legend-${slice.id}`} className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: slice.color }}
+                          />
+                          <span className="truncate text-foreground">{slice.name}</span>
+                        </div>
+                        <span className="shrink-0 text-[color:var(--muted-foreground)]">
+                          {formatWorkUnits(slice.workUnits)}工 · {percent.toFixed(0)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
@@ -1016,9 +1395,14 @@ export default function ReportsPage() {
                   人员
                 </div>
                 <div className="text-sm font-semibold text-foreground">
-                  {dayDetail.loading
-                    ? "加载中..."
-                    : `${dayDetailSummary?.headcount ?? 0}人`}
+                  {dayDetail.loading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                      <span>加载中</span>
+                    </span>
+                  ) : (
+                    `${dayDetailSummary?.headcount ?? 0}人`
+                  )}
                 </div>
               </div>
               <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2">
@@ -1026,9 +1410,14 @@ export default function ReportsPage() {
                   工数
                 </div>
                 <div className="text-sm font-semibold text-foreground">
-                  {dayDetail.loading
-                    ? "加载中..."
-                    : `${formatWorkUnits(dayDetailSummary?.totalWorkUnits ?? 0)}工`}
+                  {dayDetail.loading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                      <span>加载中</span>
+                    </span>
+                  ) : (
+                    `${formatWorkUnits(dayDetailSummary?.totalWorkUnits ?? 0)}工`
+                  )}
                 </div>
               </div>
             </div>
@@ -1036,7 +1425,10 @@ export default function ReportsPage() {
             <div className="mt-3 max-h-72 overflow-y-auto">
               {dayDetail.loading ? (
                 <div className="py-8 text-center text-xs text-[color:var(--muted-foreground)]">
-                  正在加载当日记工数据...
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                    <span>加载中</span>
+                  </div>
                 </div>
               ) : dayDetail.entries.length === 0 ? (
                 <div className="py-8 text-center text-xs text-[color:var(--muted-foreground)]">
@@ -1053,6 +1445,7 @@ export default function ReportsPage() {
                         <div className="text-sm font-medium text-foreground">
                           {entry.employeeName} - {entry.workType || ""} -{" "}
                           {entry.employeeType || ""}
+                          {entry.projectName ? ` - ${entry.projectName}` : ""}
                         </div>
                         <div className="text-[10px] text-[color:var(--muted-foreground)]">
                           正常 {formatHours(entry.normalHours)}小时

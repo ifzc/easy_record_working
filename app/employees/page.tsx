@@ -12,6 +12,8 @@ type Employee = {
   name: string;
   type: EmployeeType;
   workType?: string;
+  phone?: string;
+  idCardNumber?: string;
   remark?: string;
   tags?: string[];
   createdAt?: string;
@@ -21,11 +23,14 @@ type FormState = {
   name: string;
   type: EmployeeType;
   workType: string;
+  phone: string;
+  idCardNumber: string;
   remark: string;
   tags: string[];
 };
 
 const employeeTypes: EmployeeType[] = ["正式工", "临时工"];
+const DEFAULT_EMPLOYEE_PAGE_SIZE = 15;
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {
   const search = new URLSearchParams();
@@ -63,6 +68,21 @@ function extractList<T>(payload: unknown): T[] {
   return [];
 }
 
+function extractPagedMeta(payload: unknown) {
+  const data = (payload as { data?: unknown }).data ?? payload;
+  if (data && typeof data === "object") {
+    const total = Number((data as { total?: number }).total ?? 0);
+    const page = Number((data as { page?: number }).page ?? 1);
+    const pageSize = Number(
+      (data as { page_size?: number; pageSize?: number }).page_size ??
+        (data as { page_size?: number; pageSize?: number }).pageSize ??
+        DEFAULT_EMPLOYEE_PAGE_SIZE,
+    );
+    return { total, page, pageSize };
+  }
+  return { total: 0, page: 1, pageSize: DEFAULT_EMPLOYEE_PAGE_SIZE };
+}
+
 function normalizeTags(raw: unknown): string[] {
   if (!raw) {
     return [];
@@ -89,6 +109,8 @@ function normalizeEmployee(item: Record<string, unknown>): Employee {
   const remark = item.remark ?? item.notes ?? "";
   const tags = normalizeTags(item.tags ?? item.tag ?? item.labels ?? item.label);
   const workType = item.work_type ?? item.workType ?? "";
+  const phone = item.phone ?? item.phone_number ?? item.mobile ?? "";
+  const idCardNumber = item.id_card_number ?? item.idCardNumber ?? item.id_card ?? "";
   return {
     id: String(item.id ?? ""),
     name: String(item.name ?? item.employee_name ?? ""),
@@ -97,6 +119,8 @@ function normalizeEmployee(item: Record<string, unknown>): Employee {
       (item.employee_type as EmployeeType) ??
       "正式工",
     workType: workType ? String(workType) : "",
+    phone: phone ? String(phone) : "",
+    idCardNumber: idCardNumber ? String(idCardNumber) : "",
     remark: String(remark ?? ""),
     tags,
     createdAt: createdAt ? String(createdAt) : "",
@@ -123,21 +147,32 @@ export default function EmployeesPage() {
   const [filterType, setFilterType] = useState("");
   const [filterTag, setFilterTag] = useState("");
   const [filterWorkType, setFilterWorkType] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_EMPLOYEE_PAGE_SIZE);
+  const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({
     name: "",
     type: "正式工",
     workType: "",
+    phone: "",
+    idCardNumber: "",
     remark: "",
     tags: [],
   });
   const [tagInput, setTagInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { notify, confirm } = useNotice();
-  const displayEmployees = searchText.trim()
-    ? employees.filter((employee) => employee.name.includes(searchText.trim()))
-    : employees;
+  const displayEmployees = employees;
+  const filtersKey = useMemo(
+    () =>
+      `${searchText.trim()}|${filterType}|${filterTag}|${filterWorkType}|${pageSize}`,
+    [searchText, filterType, filterTag, filterWorkType, pageSize],
+  );
+  const filtersRef = useRef(filtersKey);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tagOptions = useMemo(() => {
     const set = new Set<string>();
     employees.forEach((employee) => {
@@ -166,41 +201,69 @@ export default function EmployeesPage() {
     type?: string;
     tag?: string;
     workType?: string;
+    page?: number;
   }) {
     try {
+      setIsLoading(true);
       const keyword = overrides?.keyword ?? searchText;
       const type = overrides?.type ?? filterType;
       const tag = overrides?.tag ?? filterTag;
       const workType = overrides?.workType ?? filterWorkType;
+      const page = overrides?.page ?? currentPage;
       const query = buildQuery({
         keyword: keyword.trim(),
         type: type || undefined,
         tag: tag.trim() || undefined,
         work_type: workType.trim() || undefined,
-        page: 1,
-        page_size: 200,
+        page,
+        page_size: pageSize,
         sort: "name_asc",
       });
       const payload = await apiJson(`/api/employees${query}`);
+      const meta = extractPagedMeta(payload);
       const list = extractList<Record<string, unknown>>(payload).map(
         normalizeEmployee,
       );
       setEmployees(list);
+      setTotal(meta.total);
+      const nextTotalPages = Math.max(1, Math.ceil(meta.total / pageSize));
+      if (meta.total > 0 && currentPage > nextTotalPages) {
+        setCurrentPage(nextTotalPages);
+      }
     } catch (error) {
       console.error(error);
+      setEmployees([]);
+      setTotal(0);
+    } finally {
+      setIsLoading(false);
     }
   }
 
   useEffect(() => {
+    if (filtersRef.current !== filtersKey) {
+      filtersRef.current = filtersKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
+    }
     const timer = window.setTimeout(() => {
       loadEmployees();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchText, filterType, filterTag, filterWorkType]);
+  }, [filtersKey, currentPage]);
 
   function openCreateModal() {
     setEditingEmployeeId(null);
-    setFormState({ name: "", type: "正式工", workType: "", remark: "", tags: [] });
+    setFormState({
+      name: "",
+      type: "正式工",
+      workType: "",
+      phone: "",
+      idCardNumber: "",
+      remark: "",
+      tags: [],
+    });
     setTagInput("");
     setIsModalOpen(true);
   }
@@ -211,6 +274,8 @@ export default function EmployeesPage() {
       name: employee.name,
       type: employee.type,
       workType: employee.workType ?? "",
+      phone: employee.phone ?? "",
+      idCardNumber: employee.idCardNumber ?? "",
       remark: employee.remark ?? "",
       tags: employee.tags ?? [],
     });
@@ -262,6 +327,8 @@ export default function EmployeesPage() {
     event.preventDefault();
     const name = formState.name.trim();
     const workType = formState.workType.trim();
+    const phone = formState.phone.trim();
+    const idCardNumber = formState.idCardNumber.trim();
     if (!name) {
       notify("请输入员工姓名。", "warning");
       return;
@@ -284,6 +351,8 @@ export default function EmployeesPage() {
             name,
             type: formState.type,
             work_type: workType,
+            phone: phone || null,
+            id_card_number: idCardNumber || null,
             remark: formState.remark.trim(),
             tags: tagsToSave,
           },
@@ -296,6 +365,8 @@ export default function EmployeesPage() {
             name,
             type: formState.type,
             work_type: workType,
+            phone: phone || null,
+            id_card_number: idCardNumber || null,
             remark: formState.remark.trim(),
             tags: tagsToSave,
           },
@@ -459,90 +530,156 @@ export default function EmployeesPage() {
         </div>
 
         <p className="mt-2 text-xs text-[color:var(--muted-foreground)]">
-          导入字段：员工姓名、员工类型（正式工/临时工）、工种。支持 Excel 导出为 CSV 后导入。
+          导入字段：员工姓名、员工类型（正式工/临时工）、工种、手机号、身份证号。支持 Excel 导出为 CSV 后导入。
         </p>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="text-[color:var(--muted-foreground)]">
-              <tr>
-                <th className="pb-2 font-medium">员工姓名</th>
-                <th className="pb-2 font-medium">员工类型</th>
-                <th className="pb-2 font-medium">工种</th>
-                <th className="pb-2 font-medium">标签</th>
-                <th className="pb-2 font-medium">备注</th>
-                <th className="pb-2 font-medium">创建时间</th>
-                <th className="pb-2 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayEmployees.length === 0 ? (
+        <div className="mt-4 flex min-h-[360px] flex-col">
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[color:var(--muted-foreground)]">
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="py-6 text-center text-[color:var(--muted-foreground)]"
-                  >
-                    暂无员工
-                  </td>
+                  <th className="pb-2 font-medium">员工姓名</th>
+                  <th className="pb-2 font-medium">员工类型</th>
+                  <th className="pb-2 font-medium">工种</th>
+                  <th className="pb-2 font-medium">手机号</th>
+                  <th className="pb-2 font-medium">身份证号</th>
+                  <th className="pb-2 font-medium">标签</th>
+                  <th className="pb-2 font-medium">备注</th>
+                  <th className="pb-2 font-medium">创建时间</th>
+                  <th className="pb-2 font-medium">操作</th>
                 </tr>
-              ) : (
-                displayEmployees.map((employee) => (
-                  <tr
-                    key={employee.id}
-                    className="border-t border-[color:var(--border)]"
-                  >
-                    <td className="py-3 text-foreground">{employee.name}</td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {employee.type}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {employee.workType || "-"}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {employee.tags && employee.tags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {employee.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-foreground"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {employee.remark || "-"}
-                    </td>
-                    <td className="py-3 text-[color:var(--muted-foreground)]">
-                      {formatDateTime(employee.createdAt)}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(employee)}
-                          className="text-xs text-foreground hover:underline"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(employee.id)}
-                          className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
-                        >
-                          删除
-                        </button>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="py-6 text-center text-[color:var(--muted-foreground)]"
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                        <span>加载中</span>
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : displayEmployees.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="py-6 text-center text-[color:var(--muted-foreground)]"
+                    >
+                      暂无员工
+                    </td>
+                  </tr>
+                ) : (
+                  displayEmployees.map((employee) => (
+                    <tr
+                      key={employee.id}
+                      className="border-t border-[color:var(--border)]"
+                    >
+                      <td className="py-3 text-foreground">{employee.name}</td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.type}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.workType || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.phone || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.idCardNumber || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.tags && employee.tags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {employee.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex items-center rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-foreground"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {employee.remark || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {formatDateTime(employee.createdAt)}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(employee)}
+                            className="text-xs text-foreground hover:underline"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(employee.id)}
+                            className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 text-xs text-[color:var(--muted-foreground)]">
+          <span>共 {total} 条</span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2">
+              每页
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  const nextSize = Number(event.target.value);
+                  setPageSize(nextSize);
+                  setCurrentPage(1);
+                }}
+                className="h-7 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+              >
+                {[10, 15, 20, 50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage <= 1 || isLoading}
+              className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+            >
+                上一页
+              </button>
+              <span>
+                {total === 0 ? 0 : currentPage} / {total === 0 ? 0 : totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                }
+                disabled={currentPage >= totalPages || isLoading}
+                className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -608,6 +745,36 @@ export default function EmployeesPage() {
                     }))
                   }
                   placeholder="例如：钢筋、木工、安装"
+                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                手机号
+                <input
+                  value={formState.phone}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      phone: event.target.value,
+                    }))
+                  }
+                  placeholder="选填"
+                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                身份证号
+                <input
+                  value={formState.idCardNumber}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      idCardNumber: event.target.value,
+                    }))
+                  }
+                  placeholder="选填"
                   className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
                 />
               </label>

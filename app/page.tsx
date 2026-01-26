@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiJson } from "./lib/api";
 import { useNotice } from "./components/NoticeProvider";
 
@@ -13,11 +13,19 @@ type Employee = {
   workType?: string;
 };
 
+type Project = {
+  id: string;
+  name: string;
+};
+
 type TimeEntry = {
   id: string;
   employeeId: string;
   employeeName: string;
   employeeType: EmployeeType;
+  workType?: string;
+  projectId?: string;
+  projectName?: string;
   date: string;
   normalHours: number;
   overtimeHours: number;
@@ -28,6 +36,7 @@ type TimeEntry = {
 type FormState = {
   employeeIds: string[];
   dates: string[];
+  projectId: string;
   normalHours: number;
   overtimeHours: number;
   remark: string;
@@ -126,6 +135,21 @@ function extractList<T>(payload: unknown): T[] {
   return [];
 }
 
+function extractPagedMeta(payload: unknown) {
+  const data = (payload as { data?: unknown }).data ?? payload;
+  if (data && typeof data === "object") {
+    const total = Number((data as { total?: number }).total ?? 0);
+    const page = Number((data as { page?: number }).page ?? 1);
+    const pageSize = Number(
+      (data as { page_size?: number; pageSize?: number }).page_size ??
+        (data as { page_size?: number; pageSize?: number }).pageSize ??
+        DEFAULT_ENTRY_PAGE_SIZE,
+    );
+    return { total, page, pageSize };
+  }
+  return { total: 0, page: 1, pageSize: DEFAULT_ENTRY_PAGE_SIZE };
+}
+
 function normalizeEmployee(item: Record<string, unknown>): Employee | null {
   const id = String(item.id ?? "");
   const name = String(item.name ?? "");
@@ -141,6 +165,15 @@ function normalizeEmployee(item: Record<string, unknown>): Employee | null {
   };
 }
 
+function normalizeProject(item: Record<string, unknown>): Project | null {
+  const id = String(item.id ?? "");
+  const name = String(item.name ?? "");
+  if (!id || !name) {
+    return null;
+  }
+  return { id, name };
+}
+
 function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
   const id = String(item.id ?? "");
   const employee = item.employee as { id?: string; name?: string; type?: EmployeeType } | undefined;
@@ -154,6 +187,9 @@ function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
     employee?.type ??
     "正式工";
   const date = String(item.work_date ?? item.workDate ?? item.date ?? "");
+  const workType = item.work_type ?? item.workType ?? item.employee_work_type ?? "";
+  const projectId = item.project_id ?? item.projectId;
+  const projectName = item.project_name ?? item.projectName ?? item.project?.name ?? "";
   const remark = item.remark ?? item.notes ?? item.note ?? "";
   const createdAt = item.created_at ?? item.createdAt ?? "";
   if (!id || !employeeId || !date) {
@@ -164,6 +200,9 @@ function normalizeEntry(item: Record<string, unknown>): TimeEntry | null {
     employeeId,
     employeeName,
     employeeType,
+    workType: workType ? String(workType) : "",
+    projectId: projectId ? String(projectId) : undefined,
+    projectName: projectName ? String(projectName) : undefined,
     date,
     normalHours: Number(item.normal_hours ?? item.normalHours ?? 0),
     overtimeHours: Number(item.overtime_hours ?? item.overtimeHours ?? 0),
@@ -185,6 +224,8 @@ function getMonthOptions(baseDate: Date) {
   return options;
 }
 
+const DEFAULT_ENTRY_PAGE_SIZE = 15;
+
 export default function Home() {
   const [today] = useState(() => new Date());
   const todayKey = toDateKey(today);
@@ -193,17 +234,23 @@ export default function Home() {
   const [selectedMonth, setSelectedMonth] = useState(() => toMonthKey(today));
   const [selectedDate, setSelectedDate] = useState(() => todayKey);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedWorkType, setSelectedWorkType] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [entryPage, setEntryPage] = useState(1);
+  const [entryTotal, setEntryTotal] = useState(0);
+  const [entryPageSize, setEntryPageSize] = useState(DEFAULT_ENTRY_PAGE_SIZE);
   const [summaryMap, setSummaryMap] = useState(
     new Map<string, { hours: number; count: number }>(),
   );
-  const [searchText, setSearchText] = useState("");
-  const [sortOrder, setSortOrder] = useState("none");
+  const [isEntriesLoading, setIsEntriesLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>({
     employeeIds: [],
     dates: [],
+    projectId: "",
     normalHours: 8,
     overtimeHours: 0,
     remark: "",
@@ -214,9 +261,29 @@ export default function Home() {
     hours: 0,
     count: 0,
   };
+  const workTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach((employee) => {
+      if (employee.workType) {
+        set.add(employee.workType);
+      }
+    });
+    if (selectedWorkType) {
+      set.add(selectedWorkType);
+    }
+    return Array.from(set);
+  }, [employees, selectedWorkType]);
+  const entryFiltersKey = useMemo(
+    () =>
+      `${selectedDate}|${selectedWorkType}|${selectedProjectId}|${entryPageSize}`,
+    [selectedDate, selectedWorkType, selectedProjectId, entryPageSize],
+  );
+  const entryTotalPages = Math.max(1, Math.ceil(entryTotal / entryPageSize));
+  const entryFiltersRef = useRef(entryFiltersKey);
 
   useEffect(() => {
     loadEmployees();
+    loadProjects();
   }, []);
 
   useEffect(() => {
@@ -224,11 +291,18 @@ export default function Home() {
   }, [selectedMonth]);
 
   useEffect(() => {
+    if (entryFiltersRef.current !== entryFiltersKey) {
+      entryFiltersRef.current = entryFiltersKey;
+      if (entryPage !== 1) {
+        setEntryPage(1);
+        return;
+      }
+    }
     const timer = window.setTimeout(() => {
       loadEntries();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [selectedDate, searchText, sortOrder]);
+  }, [entryFiltersKey, entryPage]);
 
   async function loadEmployees() {
     try {
@@ -246,41 +320,51 @@ export default function Home() {
     }
   }
 
-  async function loadEntries() {
+  async function loadProjects() {
     try {
-      const sort =
-        sortOrder === "none"
-          ? undefined
-          : sortOrder === "hours-asc"
-            ? "hours_asc"
-            : "hours_desc";
       const query = buildQuery({
-        date: selectedDate,
-        keyword: searchText.trim() || undefined,
-        sort,
         page: 1,
         page_size: 200,
+        sort: "name_asc",
+      });
+      const payload = await apiJson(`/api/projects${query}`);
+      const list = extractList<Record<string, unknown>>(payload)
+        .map(normalizeProject)
+        .filter((item): item is Project => Boolean(item));
+      setProjects(list);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function loadEntries() {
+    try {
+      setIsEntriesLoading(true);
+      const query = buildQuery({
+        date: selectedDate,
+        work_type: selectedWorkType || undefined,
+        project_id: selectedProjectId || undefined,
+        page: entryPage,
+        page_size: entryPageSize,
       });
       const payload = await apiJson(`/api/time-entries${query}`);
+      const meta = extractPagedMeta(payload);
       let list = extractList<Record<string, unknown>>(payload)
         .map(normalizeEntry)
         .filter((item): item is TimeEntry => Boolean(item));
-
-      if (sortOrder === "hours-asc") {
-        list = list.sort(
-          (a, b) =>
-            a.normalHours + a.overtimeHours - (b.normalHours + b.overtimeHours),
-        );
-      }
-      if (sortOrder === "hours-desc") {
-        list = list.sort(
-          (a, b) =>
-            b.normalHours + b.overtimeHours - (a.normalHours + a.overtimeHours),
-        );
+      setEntryTotal(meta.total);
+      const nextTotalPages = Math.max(1, Math.ceil(meta.total / entryPageSize));
+      if (meta.total > 0 && entryPage > nextTotalPages) {
+        setEntryPage(nextTotalPages);
+        return;
       }
       setEntries(list);
     } catch (error) {
       console.error(error);
+      setEntries([]);
+      setEntryTotal(0);
+    } finally {
+      setIsEntriesLoading(false);
     }
   }
 
@@ -322,6 +406,7 @@ export default function Home() {
     setFormState({
       employeeIds: [],
       dates: [selectedDate],
+      projectId: "",
       normalHours: 8,
       overtimeHours: 0,
       remark: "",
@@ -334,6 +419,7 @@ export default function Home() {
     setFormState({
       employeeIds: [entry.employeeId],
       dates: [entry.date],
+      projectId: entry.projectId ?? "",
       normalHours: entry.normalHours,
       overtimeHours: entry.overtimeHours,
       remark: entry.remark ?? "",
@@ -360,6 +446,11 @@ export default function Home() {
 
   async function handleFormSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const projectId = formState.projectId;
+    if (projects.length > 0 && !projectId) {
+      notify("请选择项目。", "warning");
+      return;
+    }
 
     if (editingEntryId) {
       // 编辑模式：单条记录编辑
@@ -371,6 +462,7 @@ export default function Home() {
       try {
         const body = {
           employee_id: formState.employeeIds[0],
+          project_id: projectId || null,
           work_date: formState.dates[0],
           normal_hours: formState.normalHours,
           overtime_hours: formState.overtimeHours,
@@ -405,6 +497,7 @@ export default function Home() {
         const body = {
           employee_ids: formState.employeeIds,
           work_dates: formState.dates,
+          project_id: projectId || null,
           normal_hours: formState.normalHours,
           overtime_hours: formState.overtimeHours,
           remark: formState.remark.trim(),
@@ -542,21 +635,43 @@ export default function Home() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="搜索员工"
-                className="h-8 w-32 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
-              />
-              <select
-                value={sortOrder}
-                onChange={(event) => setSortOrder(event.target.value)}
-                className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-[color:var(--muted-foreground)]"
-              >
-                <option value="none">工时排序</option>
-                <option value="hours-asc">工时升序</option>
-                <option value="hours-desc">工时降序</option>
-              </select>
+              <label className="flex items-center gap-2 text-xs text-[color:var(--muted-foreground)]">
+                工种
+                <select
+                  value={selectedWorkType}
+                  onChange={(event) => setSelectedWorkType(event.target.value)}
+                  className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+                >
+                  <option value="">全部工种</option>
+                  {workTypeOptions.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-[color:var(--muted-foreground)]">
+                项目
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+                  disabled={projects.length === 0}
+                >
+                  {projects.length === 0 ? (
+                    <option value="">暂无项目</option>
+                  ) : (
+                    <>
+                      <option value="">全部项目</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </label>
               <button
                 type="button"
                 onClick={openCreateModal}
@@ -567,80 +682,146 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-[color:var(--muted-foreground)]">
-                <tr>
-                  <th className="pb-2 font-medium">员工姓名</th>
-                  <th className="pb-2 font-medium">员工类别</th>
-                  <th className="pb-2 font-medium">正常班次工时</th>
-                  <th className="pb-2 font-medium">加班工时</th>
-                  <th className="pb-2 font-medium">总计工</th>
-                  <th className="pb-2 font-medium">备注</th>
-                  <th className="pb-2 font-medium">创建时间</th>
-                  <th className="pb-2 font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.length === 0 ? (
+          <div className="mt-4 flex min-h-[360px] flex-col">
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-[color:var(--muted-foreground)]">
                   <tr>
-                    <td
-                      colSpan={8}
-                      className="py-6 text-center text-[color:var(--muted-foreground)]"
-                    >
-                      暂无记录
-                    </td>
+                    <th className="pb-2 font-medium">员工姓名</th>
+                    <th className="pb-2 font-medium">员工类别</th>
+                    <th className="pb-2 font-medium">工种</th>
+                    <th className="pb-2 font-medium">项目</th>
+                    <th className="pb-2 font-medium">正常班次工时</th>
+                    <th className="pb-2 font-medium">加班工时</th>
+                    <th className="pb-2 font-medium">总计工</th>
+                    <th className="pb-2 font-medium">备注</th>
+                    <th className="pb-2 font-medium">创建时间</th>
+                    <th className="pb-2 font-medium">操作</th>
                   </tr>
-                ) : (
-                  entries.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-t border-[color:var(--border)]"
-                    >
-                      <td className="py-3 text-foreground">
-                        {item.employeeName || "未知"}
-                      </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {item.employeeType || "-"}
-                      </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {formatHoursLabel(item.normalHours)}
-                      </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {formatHoursLabel(item.overtimeHours)}
-                      </td>
-                      <td className="py-3 text-foreground">
-                        {formatWorkUnits(item.normalHours, item.overtimeHours)}工
-                      </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {item.remark || "-"}
-                      </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {formatDateTime(item.createdAt)}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(item)}
-                            className="text-xs text-foreground hover:underline"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(item.id)}
-                            className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
-                          >
-                            删除
-                          </button>
+                </thead>
+                <tbody>
+                  {isEntriesLoading ? (
+                    <tr>
+                      <td
+                        colSpan={10}
+                        className="py-6 text-center text-[color:var(--muted-foreground)]"
+                      >
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--border)] border-t-foreground" />
+                          <span>加载中</span>
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : entries.length === 0 ? (
+                    <tr>
+                      <td
+                      colSpan={10}
+                        className="py-6 text-center text-[color:var(--muted-foreground)]"
+                      >
+                        暂无记录
+                      </td>
+                    </tr>
+                  ) : (
+                    entries.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="border-t border-[color:var(--border)]"
+                      >
+                        <td className="py-3 text-foreground">
+                          {item.employeeName || "未知"}
+                        </td>
+                        <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {item.employeeType || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {item.workType || "-"}
+                      </td>
+                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                        {item.projectName || "-"}
+                      </td>
+                        <td className="py-3 text-[color:var(--muted-foreground)]">
+                          {formatHoursLabel(item.normalHours)}
+                        </td>
+                        <td className="py-3 text-[color:var(--muted-foreground)]">
+                          {formatHoursLabel(item.overtimeHours)}
+                        </td>
+                        <td className="py-3 text-foreground">
+                          {formatWorkUnits(item.normalHours, item.overtimeHours)}工
+                        </td>
+                        <td className="py-3 text-[color:var(--muted-foreground)]">
+                          {item.remark || "-"}
+                        </td>
+                        <td className="py-3 text-[color:var(--muted-foreground)]">
+                          {formatDateTime(item.createdAt)}
+                        </td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item)}
+                              className="text-xs text-foreground hover:underline"
+                            >
+                              编辑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item.id)}
+                              className="text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 text-xs text-[color:var(--muted-foreground)]">
+              <span>共 {entryTotal} 条</span>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2">
+                  每页
+                  <select
+                    value={entryPageSize}
+                    onChange={(event) => {
+                      const nextSize = Number(event.target.value);
+                      setEntryPageSize(nextSize);
+                      setEntryPage(1);
+                    }}
+                    className="h-7 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+                  >
+                    {[10, 15, 20, 50].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setEntryPage((prev) => Math.max(1, prev - 1))}
+                  disabled={entryPage <= 1 || isEntriesLoading}
+                  className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span>
+                  {entryTotal === 0 ? 0 : entryPage} / {entryTotal === 0 ? 0 : entryTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEntryPage((prev) => Math.min(entryTotalPages, prev + 1))
+                  }
+                  disabled={entryPage >= entryTotalPages || isEntriesLoading}
+                  className="rounded-md border border-[color:var(--border)] px-2 py-1 text-xs text-foreground disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -662,6 +843,33 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="mt-4 space-y-3">
+              <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
+                项目
+                <select
+                  value={formState.projectId}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      projectId: event.target.value,
+                    }))
+                  }
+                  className="h-9 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-sm text-foreground"
+                  disabled={projects.length === 0}
+                >
+                  {projects.length === 0 ? (
+                    <option value="">暂无项目</option>
+                  ) : (
+                    <>
+                      <option value="">请选择项目</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </label>
               {editingEntryId ? (
                 <>
                   <label className="flex flex-col gap-1 text-xs text-[color:var(--muted-foreground)]">
