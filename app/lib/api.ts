@@ -6,7 +6,7 @@ type ApiRequestOptions = {
   headers?: Record<string, string>;
 };
 
-export const API_BASE = "http://47.117.71.201:8081";
+export const API_BASE = "https://api.ejigong.cn";
 
 function buildUrl(path: string) {
   if (path.startsWith("http://") || path.startsWith("https://")) {
