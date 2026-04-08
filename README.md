@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 易记工 Web
 
-## Getting Started
+易记工 Web 是基于 Next.js 16 的前端项目，提供每日记工、员工管理、项目管理、月度总览等功能页面，并通过后端 API 完成数据查询、导入导出和业务操作。
 
-First, run the development server:
+## 本地开发
+
+1. 复制 `.env.example` 为 `.env`
+2. 按实际环境配置后端地址
+
+```env
+NEXT_PUBLIC_API_BASE="http://localhost:5000"
+```
+
+3. 安装依赖并启动开发服务
+
+```bash
+npm install
+npm run dev
+```
+
+默认访问地址为 `https://api.ejigong.cn`。
+
+## 常用命令
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm run start
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 配置说明
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- 前端通过 `NEXT_PUBLIC_API_BASE` 读取后端地址。
+- 若未提供环境变量，当前代码会回退到默认线上地址。
+- 员工导入模板、记工明细导出、项目导出等功能依赖 `easy_record_working_api` 提供对应接口。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 更新日志
 
-## Learn More
+### 2026-04-09
 
-To learn more about Next.js, take a look at the following resources:
+#### 配置与导出
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 前端 `API_BASE` 改为通过 `.env` 中的 `NEXT_PUBLIC_API_BASE` 配置。
+- 记工明细导出改为 Excel，支持按开始日期和结束日期导出详细表格。
+- 记工明细导出弹窗中，点击整个日期输入框即可直接打开日期选择器。
+- 记工明细导出新增“标签”字段，“记工”列固定保留两位小数。
+- 员工导入模板改为由后端生成 Excel，便于统一导出样式。
+- 项目管理导出统一为 Excel。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+#### 每日记工
 
-## Deploy on Vercel
+- 新增“导出工时明细”按钮和导出弹窗。
+- 新增记工弹窗加宽，`选择项目 / 常规班次小时 / 加班小时` 调整为同一行三等分布局。
+- `选择员工 / 选择日期` 调整为 `2 / 1` 分栏布局。
+- 员工选择改为按工种分组的卡片式布局，支持整组切换，一排显示 6 人。
+- 临时工统一使用时钟图标标识，选中状态使用勾选图标。
+- 支持显示员工标签，带标签员工高亮展示，并提供悬浮信息卡。
+- 日期选择区支持显示当前月份、切换上月和下月，并展示全部已选日期。
+- 备注改为单行输入，移除总计工说明和字数计数提示。
+- 记工明细表格移除“员工类别”列，临时工改为在员工姓名后显示图标。
+- 记工明细表格移除独立的常规班次工时和加班工时列，统一并入“记工”列展示。
+- “记工”列文案统一为 `常规 xh / 加班 xh -> x个工`，无加班时自动隐藏加班部分。
+- 记工明细中的员工姓名列支持同一行展示姓名、临时工图标和用户标签。
+- 记工明细中的“创建时间”“操作”列增加固定列宽，列表行距同步收紧。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+#### 员工管理
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 列表行高调整为更紧凑的显示效果。
+- Excel 导入区域左侧新增“下载导入模板”按钮。
+- 导出方式统一调整为 Excel。
+- 员工列表中的临时工展示方式与每日记工统一，改为时钟图标标记，不再单独占用“员工类型”列。
+
+#### 项目管理
+
+- 新增状态筛选，默认筛选项为“进行中”。
+- 新增项目导出功能，导出格式为 Excel。
+- 修复项目导出时因非法日期导致的 `System.OverflowException: Not a legal OleAut date` 问题。
+- 项目管理表格每行高度收紧，列表显示更紧凑。
+
+#### 月度总览与报表
+
+- 全局术语统一：`正常班次` 调整为 `常规班次`，`X工` 调整为 `X个工`。
+- 当日记工详情中的临时工展示改为与每日记工一致的时钟图标。
+- 四个饼图的配色调整为高饱和度、低浓度的浅亮色系。
+
+#### 联动后端支持
+
+- 记工明细导出增加标签列，并对“记工”列应用两位小数格式。
+- 项目导出逻辑补充日期处理，避免 ClosedXML 在异常日期上抛错。

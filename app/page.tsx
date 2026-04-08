@@ -1006,7 +1006,6 @@ export default function Home() {
                                   <Clock3
                                     className="h-3.5 w-3.5 text-amber-500"
                                     aria-label="临时工标记"
-                                    title="临时工标记"
                                   />
                                 ) : null}
                               </span>
