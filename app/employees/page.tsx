@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Clock3 } from "lucide-react";
 import { apiBlob, apiJson, API_BASE } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 import { loadAuthToken } from "../lib/auth";
@@ -423,12 +424,12 @@ export default function EmployeesPage() {
 
   async function handleExport() {
     try {
-      const query = buildQuery({ format: "csv" });
+      const query = buildQuery({ format: "xlsx" });
       const blob = await apiBlob(`/api/employees/export${query}`);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       const date = new Date();
-      const fileName = `员工管理_${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}.csv`;
+      const fileName = `员工管理_${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}.xlsx`;
 
       link.href = url;
       link.download = fileName;
@@ -438,6 +439,24 @@ export default function EmployeesPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "导出失败，请稍后再试。";
+      notify(message, "error");
+    }
+  }
+
+  async function handleDownloadTemplate() {
+    try {
+      const query = buildQuery({ format: "xlsx" });
+      const blob = await apiBlob(`/api/employees/import-template${query}`);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "员工导入模板.xlsx";
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "模板下载失败，请稍后再试。";
       notify(message, "error");
     }
   }
@@ -507,6 +526,13 @@ export default function EmployeesPage() {
             />
             <button
               type="button"
+              onClick={handleDownloadTemplate}
+              className="h-8 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
+            >
+              下载导入模板
+            </button>
+            <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
               className="h-8 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)] hover:text-foreground"
             >
@@ -530,7 +556,7 @@ export default function EmployeesPage() {
         </div>
 
         <p className="mt-2 text-xs text-[color:var(--muted-foreground)]">
-          导入字段：员工姓名、员工类型（正式工/临时工）、工种、手机号、身份证号。支持 Excel 导出为 CSV 后导入。
+          导入字段：员工姓名、员工类型（正式工/临时工）、工种、手机号、身份证号。可先下载 Excel 模板填写，再另存为 CSV 后导入。
         </p>
 
         <div className="mt-4 flex min-h-[360px] flex-col">
@@ -538,22 +564,21 @@ export default function EmployeesPage() {
             <table className="w-full text-left text-xs">
               <thead className="text-[color:var(--muted-foreground)]">
                 <tr>
-                  <th className="pb-2 font-medium">员工姓名</th>
-                  <th className="pb-2 font-medium">员工类型</th>
-                  <th className="pb-2 font-medium">工种</th>
-                  <th className="pb-2 font-medium">手机号</th>
-                  <th className="pb-2 font-medium">身份证号</th>
-                  <th className="pb-2 font-medium">标签</th>
-                  <th className="pb-2 font-medium">备注</th>
-                  <th className="pb-2 font-medium">创建时间</th>
-                  <th className="pb-2 font-medium">操作</th>
+                  <th className="pb-1 font-medium">员工姓名</th>
+                  <th className="pb-1 font-medium">工种</th>
+                  <th className="pb-1 font-medium">手机号</th>
+                  <th className="pb-1 font-medium">身份证号</th>
+                  <th className="pb-1 font-medium">标签</th>
+                  <th className="pb-1 font-medium">备注</th>
+                  <th className="pb-1 font-medium">创建时间</th>
+                  <th className="pb-1 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
                     <td
-                      colSpan={9}
+                        colSpan={8}
                       className="py-6 text-center text-[color:var(--muted-foreground)]"
                     >
                       <div className="flex items-center justify-center gap-2">
@@ -565,7 +590,7 @@ export default function EmployeesPage() {
                 ) : displayEmployees.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={9}
+                        colSpan={8}
                       className="py-6 text-center text-[color:var(--muted-foreground)]"
                     >
                       暂无员工
@@ -577,26 +602,34 @@ export default function EmployeesPage() {
                       key={employee.id}
                       className="border-t border-[color:var(--border)]"
                     >
-                      <td className="py-3 text-foreground">{employee.name}</td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
-                        {employee.type}
+                      <td className="py-2 text-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span>{employee.name}</span>
+                          {employee.type === "临时工" ? (
+                            <Clock3
+                              className="h-3.5 w-3.5 text-amber-500"
+                              aria-label="临时工标记"
+                              title="临时工标记"
+                            />
+                          ) : null}
+                        </span>
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {employee.workType || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {employee.phone || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {employee.idCardNumber || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {employee.tags && employee.tags.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
                             {employee.tags.map((tag) => (
                               <span
                                 key={tag}
-                                className="inline-flex items-center rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-foreground"
+                                className="inline-flex items-center rounded-full border border-[color:var(--border)] px-2 py-px text-[10px] text-foreground"
                               >
                                 {tag}
                               </span>
@@ -606,13 +639,13 @@ export default function EmployeesPage() {
                           "-"
                         )}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {employee.remark || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {formatDateTime(employee.createdAt)}
                       </td>
-                      <td className="py-3">
+                      <td className="py-2">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"

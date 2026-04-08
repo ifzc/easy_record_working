@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { apiJson } from "../lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiBlob, apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 
 type ProjectStatus = "active" | "pending" | "completed";
@@ -268,10 +268,12 @@ export default function ProjectsPage() {
   const [today] = useState(() => new Date());
   const [projects, setProjects] = useState<Project[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState<ProjectStatus | "">("active");
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PROJECT_PAGE_SIZE);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(0);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -286,8 +288,8 @@ export default function ProjectsPage() {
   const { notify, confirm } = useNotice();
   const displayProjects = projects;
   const filtersKey = useMemo(
-    () => `${searchText.trim()}|${pageSize}`,
-    [searchText, pageSize],
+    () => `${searchText.trim()}|${selectedStatus}|${pageSize}`,
+    [searchText, selectedStatus, pageSize],
   );
   const filtersRef = useRef(filtersKey);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -307,39 +309,45 @@ export default function ProjectsPage() {
   const canZoomIn = ganttZoomSteps < maxZoomInSteps;
   const canZoomOut = ganttZoomSteps > -MAX_GANTT_ZOOM_OUT;
 
-  async function loadProjects(overrides?: {
-    keyword?: string;
-    page?: number;
-  }) {
-    try {
-      setIsLoading(true);
-      const keyword = overrides?.keyword ?? searchText;
-      const page = overrides?.page ?? currentPage;
-      const query = buildQuery({
-        keyword: keyword.trim(),
-        page,
-        page_size: pageSize,
-        sort: "name_asc",
-      });
-      const payload = await apiJson(`/api/projects${query}`);
-      const meta = extractPagedMeta(payload);
-      const list = extractList<Record<string, unknown>>(payload).map(
-        normalizeProject,
-      );
-      setProjects(list);
-      setTotal(meta.total);
-      const nextTotalPages = Math.max(1, Math.ceil(meta.total / pageSize));
-      if (meta.total > 0 && currentPage > nextTotalPages) {
-        setCurrentPage(nextTotalPages);
+  const loadProjects = useCallback(
+    async (overrides?: {
+      keyword?: string;
+      status?: ProjectStatus | "";
+      page?: number;
+    }) => {
+      try {
+        setIsLoading(true);
+        const keyword = overrides?.keyword ?? searchText;
+        const status = overrides?.status ?? selectedStatus;
+        const page = overrides?.page ?? currentPage;
+        const query = buildQuery({
+          keyword: keyword.trim(),
+          status: status || undefined,
+          page,
+          page_size: pageSize,
+          sort: "name_asc",
+        });
+        const payload = await apiJson(`/api/projects${query}`);
+        const meta = extractPagedMeta(payload);
+        const list = extractList<Record<string, unknown>>(payload).map(
+          normalizeProject,
+        );
+        setProjects(list);
+        setTotal(meta.total);
+        const nextTotalPages = Math.max(1, Math.ceil(meta.total / pageSize));
+        if (meta.total > 0 && page > nextTotalPages) {
+          setCurrentPage(nextTotalPages);
+        }
+      } catch (error) {
+        console.error(error);
+        setProjects([]);
+        setTotal(0);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error(error);
-      setProjects([]);
-      setTotal(0);
-    } finally {
-      setIsLoading(false);
-    }
-  }
+    },
+    [currentPage, pageSize, searchText, selectedStatus],
+  );
 
   useEffect(() => {
     if (filtersRef.current !== filtersKey) {
@@ -353,7 +361,7 @@ export default function ProjectsPage() {
       loadProjects();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [filtersKey, currentPage]);
+  }, [currentPage, filtersKey, loadProjects]);
 
   function openCreateModal() {
     setEditingProjectId(null);
@@ -394,6 +402,34 @@ export default function ProjectsPage() {
       const message =
         error instanceof Error ? error.message : "删除失败，请稍后再试。";
       notify(message, "error");
+    }
+  }
+
+  async function handleExport() {
+    try {
+      setIsExporting(true);
+      const query = buildQuery({
+        format: "xlsx",
+        keyword: searchText.trim(),
+        status: selectedStatus || undefined,
+      });
+      const blob = await apiBlob(`/api/projects/export${query}`);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const date = new Date();
+      const fileName = `项目管理_${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}.xlsx`;
+
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      notify("项目导出成功。", "success");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "导出失败，请稍后再试。";
+      notify(message, "error");
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -453,13 +489,37 @@ export default function ProjectsPage() {
 
       <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <input
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="搜索项目"
-            className="h-8 w-40 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
-          />
           <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="搜索项目"
+              className="h-8 w-40 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            />
+            <select
+              value={selectedStatus}
+              onChange={(event) =>
+                setSelectedStatus(event.target.value as ProjectStatus | "")
+              }
+              className="h-8 rounded-md border border-[color:var(--border)] bg-transparent px-2 text-xs text-foreground"
+            >
+              <option value="">全部状态</option>
+              {projectStatuses.map((statusOption) => (
+                <option key={statusOption.value} value={statusOption.value}>
+                  {statusOption.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting}
+              className="h-8 rounded-md border border-[color:var(--border)] px-3 text-xs text-[color:var(--muted-foreground)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isExporting ? "导出中..." : "导出Excel"}
+            </button>
             <button
               type="button"
               onClick={openCreateModal}
@@ -654,14 +714,14 @@ export default function ProjectsPage() {
             <table className="w-full text-left text-xs">
               <thead className="text-[color:var(--muted-foreground)]">
                 <tr>
-                  <th className="pb-2 font-medium">项目名称</th>
-                  <th className="pb-2 font-medium">项目代码</th>
-                  <th className="pb-2 font-medium">项目状态</th>
-                  <th className="pb-2 font-medium">计划开始</th>
-                  <th className="pb-2 font-medium">计划结束</th>
-                  <th className="pb-2 font-medium">备注</th>
-                  <th className="pb-2 font-medium">创建时间</th>
-                  <th className="pb-2 font-medium">操作</th>
+                  <th className="pb-1 font-medium">项目名称</th>
+                  <th className="pb-1 font-medium">项目代码</th>
+                  <th className="pb-1 font-medium">项目状态</th>
+                  <th className="pb-1 font-medium">计划开始</th>
+                  <th className="pb-1 font-medium">计划结束</th>
+                  <th className="pb-1 font-medium">备注</th>
+                  <th className="pb-1 font-medium">创建时间</th>
+                  <th className="pb-1 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -692,26 +752,26 @@ export default function ProjectsPage() {
                       key={project.id}
                       className="border-t border-[color:var(--border)]"
                     >
-                      <td className="py-3 text-foreground">{project.name}</td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-foreground">{project.name}</td>
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {project.code || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {getStatusLabel(project.status)}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {formatDate(project.planned_start_date)}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {formatDate(project.planned_end_date)}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {project.remark || "-"}
                       </td>
-                      <td className="py-3 text-[color:var(--muted-foreground)]">
+                      <td className="py-2 text-[color:var(--muted-foreground)]">
                         {formatDateTime(project.createdAt)}
                       </td>
-                      <td className="py-3">
+                      <td className="py-2">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"

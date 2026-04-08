@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Clock3, Info } from "lucide-react";
 import { apiJson } from "../lib/api";
 import { useNotice } from "../components/NoticeProvider";
 
@@ -86,14 +86,14 @@ const CHART_PADDING = 4;
 const CHART_LABEL_SPACE = 10;
 const CHART_PLOT_HEIGHT = CHART_HEIGHT - CHART_LABEL_SPACE;
 const PIE_COLORS = [
-  "#2563eb",
-  "#f97316",
-  "#16a34a",
-  "#a855f7",
-  "#eab308",
-  "#ef4444",
-  "#0ea5e9",
-  "#14b8a6",
+  "#7ea7ff",
+  "#ffad72",
+  "#74cfa6",
+  "#b28cff",
+  "#ffd36e",
+  "#ff96ad",
+  "#70c8df",
+  "#a9cf68",
 ];
 
 const employeeTypes: EmployeeType[] = ["正式工", "临时工"];
@@ -123,6 +123,14 @@ function formatHours(value: number) {
 
 function formatWorkUnits(value: number) {
   return Number.isInteger(value) ? `${value}` : value.toFixed(2);
+}
+
+function formatWorkUnitsLabel(value: number) {
+  return `${formatWorkUnits(value)}个工`;
+}
+
+function isTemporaryEmployee(employeeType?: string) {
+  return employeeType === "临时工";
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {
@@ -1114,7 +1122,7 @@ export default function ReportsPage() {
                 className="h-2 w-2 rounded-full"
                 style={{ backgroundColor: "#2563eb" }}
               />
-              正常班次
+              常规班次
             </span>
             <span className="flex items-center gap-1">
               <span
@@ -1210,9 +1218,9 @@ export default function ReportsPage() {
                 <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] text-[color:var(--muted-foreground)]">
                   <span>人数 {hoverSummary.headcount}人</span>
                   <span>总工时 {formatHours(hoverSummary.totalHours)}h</span>
-                  <span>正常 {formatHours(hoverSummary.normalHours)}h</span>
+                  <span>常规 {formatHours(hoverSummary.normalHours)}h</span>
                   <span>加班 {formatHours(hoverSummary.overtimeHours)}h</span>
-                  <span>工数 {formatWorkUnits(hoverSummary.totalWorkUnits)}工</span>
+                  <span>工数 {formatWorkUnitsLabel(hoverSummary.totalWorkUnits)}</span>
                 </div>
               </div>
             ) : null}
@@ -1561,7 +1569,7 @@ export default function ReportsPage() {
             <span className="font-medium text-foreground">{pieHover.slice.name}</span>
           </div>
           <div className="mt-1 text-[color:var(--muted-foreground)]">
-            工数: {formatWorkUnits(pieHover.slice.workUnits)} 工 · {pieHover.slice.percent.toFixed(1)}%
+            工数: {formatWorkUnitsLabel(pieHover.slice.workUnits)} · {pieHover.slice.percent.toFixed(1)}%
           </div>
         </div>
       ) : null}
@@ -1623,7 +1631,7 @@ export default function ReportsPage() {
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-[color:var(--muted-foreground)]">
-                      {summary.headcount}人 / {formatWorkUnits(summary.totalWorkUnits)}工
+                      {summary.headcount}人 / {formatWorkUnitsLabel(summary.totalWorkUnits)}
                     </span>
                     <button
                       type="button"
@@ -1725,7 +1733,7 @@ export default function ReportsPage() {
                       <span>加载中</span>
                     </span>
                   ) : (
-                    `${formatWorkUnits(dayDetailSummary?.totalWorkUnits ?? 0)}工`
+                    `${formatWorkUnitsLabel(dayDetailSummary?.totalWorkUnits ?? 0)}`
                   )}
                 </div>
               </div>
@@ -1751,13 +1759,30 @@ export default function ReportsPage() {
                       className="flex items-start justify-between gap-3 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-sm font-medium text-foreground">
-                          {entry.employeeName} - {entry.workType || ""} -{" "}
-                          {entry.employeeType || ""}
-                          {entry.projectName ? ` - ${entry.projectName}` : ""}
+                        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm font-medium text-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <span>{entry.employeeName}</span>
+                            {isTemporaryEmployee(entry.employeeType) ? (
+                              <Clock3
+                                className="h-3.5 w-3.5 text-amber-500"
+                                aria-label="临时工标记"
+                                title="临时工标记"
+                              />
+                            ) : null}
+                          </span>
+                          {entry.workType ? (
+                            <span className="text-[color:var(--muted-foreground)]">
+                              · {entry.workType}
+                            </span>
+                          ) : null}
+                          {entry.projectName ? (
+                            <span className="text-[color:var(--muted-foreground)]">
+                              · {entry.projectName}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-[10px] text-[color:var(--muted-foreground)]">
-                          正常 {formatHours(entry.normalHours)}小时
+                          常规 {formatHours(entry.normalHours)}小时
                           {entry.overtimeHours > 0 ? (
                             <>
                               {" "}
@@ -1776,7 +1801,7 @@ export default function ReportsPage() {
                           工数
                         </div>
                         <div className="text-sm font-semibold text-foreground">
-                          {formatWorkUnits(entry.workUnits)}工
+                          {formatWorkUnitsLabel(entry.workUnits)}
                         </div>
                       </div>
                     </div>
