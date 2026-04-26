@@ -8,7 +8,7 @@ type ApiRequestOptions = {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE?.trim();
 
-export const API_BASE = apiBase ? apiBase.replace(/\/+$/, "") : "https://api.ejigong.cn";
+export const API_BASE = apiBase ? apiBase.replace(/\/+$/, "") : "http://api.ejigong.cn";
 
 function buildUrl(path: string) {
   if (path.startsWith("http://") || path.startsWith("https://")) {

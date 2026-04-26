@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-默认访问地址为 `https://api.ejigong.cn`。
+默认访问地址为 `http://api.ejigong.cn`。
 
 ## 常用命令
 
